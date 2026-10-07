@@ -8,6 +8,7 @@ PostgreSQL 14+. The source of truth is the migrations, applied in order:
 4. [`004_booking_workflow.sql`](../db/migrations/004_booking_workflow.sql): status `pending` renamed to `pending_payment`, `hold_expires_at` renamed to `expires_at`, a 3-minute checkout hold (15 minutes since migration 005), and owners blocked from changing bookings during checkout
 5. [`005_paymongo_payments.sql`](../db/migrations/005_paymongo_payments.sql): PayMongo payments: booking payment fields, transaction payment details and commission, webhook event log, refunds and the notifications outbox (see [payments.md](payments.md))
 6. [`006_email_sms_notifications.sql`](../db/migrations/006_email_sms_notifications.sql): `users.phone`, booking confirmation audit times, and per-channel (email/SMS) notification delivery tracking (see [notifications.md](notifications.md))
+7. [`007_owner_dashboard.sql`](../db/migrations/007_owner_dashboard.sql): `owner_daily_metrics()` and `owner_timezone()` for the owner dashboard (see [dashboard.md](dashboard.md))
 
 ## Entity relationships
 

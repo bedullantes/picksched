@@ -34,14 +34,20 @@ for (const [name, rate, location] of [
   courts.push(row.id);
 }
 
+// Re-running the seed after people booked the same slots is fine; any other error is a real problem.
+const ignoreOverlap = (err: { code?: string }) => {
+  if (err.code !== '23P01') throw err;
+};
+
 const tomorrow = (await db.query(`SELECT ((now() AT TIME ZONE 'Asia/Manila')::date + 1)::text AS d`)).rows[0].d;
 const at = (h: number) => `${tomorrow} ${String(h).padStart(2, '0')}:00+08`;
 const seedBooking = async (court: string, who: string, h: number, len: number, status: 'pending' | 'confirmed') => {
   await db.query(
     `INSERT INTO bookings (court_id, player_id, start_time, end_time, status, payment_status)
-     SELECT $1, $2, $3::timestamptz, $4::timestamptz, $5, CASE WHEN $5 = 'confirmed' THEN 'paid' ELSE 'unpaid' END::booking_payment_status
+     SELECT $1, $2, $3::timestamptz, $4::timestamptz, $5::booking_status,
+            CASE WHEN $5::text = 'confirmed' THEN 'paid' ELSE 'unpaid' END::booking_payment_status
      WHERE NOT EXISTS (SELECT 1 FROM bookings WHERE court_id = $1 AND start_time = $3::timestamptz AND status <> 'cancelled')`,
-    [court, who, at(h), at(h + len), status]).catch(() => undefined);
+    [court, who, at(h), at(h + len), status]).catch(ignoreOverlap);
 };
 await seedBooking(courts[0], player, 8, 2, 'confirmed');
 await seedBooking(courts[0], player2, 17, 1, 'confirmed');
@@ -51,7 +57,7 @@ await db.query(
   `INSERT INTO court_blocks (court_id, start_time, end_time, reason)
    SELECT $1, $2::timestamptz, $3::timestamptz, 'Net replacement'
    WHERE NOT EXISTS (SELECT 1 FROM court_blocks WHERE court_id = $1 AND start_time = $2::timestamptz)`,
-  [courts[1], at(13), at(15)]).catch(() => undefined);
+  [courts[1], at(13), at(15)]).catch(ignoreOverlap);
 
 await db.end();
 console.log(`Seeded demo data (bookings on ${tomorrow}). Password for all demo users: pickleball123`);

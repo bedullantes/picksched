@@ -8,6 +8,7 @@ import { authRoutes } from './routes/auth.js';
 import { availabilityRoutes } from './routes/availability.js';
 import { bookingRoutes } from './routes/bookings.js';
 import { courtRoutes } from './routes/courts.js';
+import { dashboardRoutes } from './routes/dashboard.js';
 import { eventRoutes } from './routes/events.js';
 import { maintenanceRoutes } from './routes/maintenance.js';
 import { notificationRoutes } from './routes/notifications.js';
@@ -32,6 +33,7 @@ export function createApp(deps: Deps) {
   app.use('/api/maintenance-blocks', maintenanceRoutes(deps));
   app.use('/api/events', eventRoutes(deps));
   app.use('/api/notifications', notificationRoutes(deps));
+  app.use('/api/dashboard', dashboardRoutes(deps));
   app.use('/api', (_req, _res, next) => next(new ApiError(404, 'NOT_FOUND', 'Not found.')));
 
   // In production, serve the built web app from the same origin.

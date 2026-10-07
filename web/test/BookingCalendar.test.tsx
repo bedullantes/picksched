@@ -99,7 +99,8 @@ describe('player view', () => {
     await userEvent.click(await screen.findByRole('button', { name: /10:00 AM.*Available/ }));
     await userEvent.click(screen.getByRole('button', { name: /Reserve & continue/ }));
 
-    await waitFor(() => expect(onProceed).toHaveBeenCalledWith('b-replayed', expect.anything()));
+    // The automatic retry happens after a 1s delay, longer than waitFor's default timeout.
+    await waitFor(() => expect(onProceed).toHaveBeenCalledWith('b-replayed', expect.anything()), { timeout: 3000 });
     const posts = calls.filter((c) => c.method === 'POST');
     expect(posts).toHaveLength(2);
     const key = posts[0].headers['Idempotency-Key'];
@@ -112,7 +113,7 @@ describe('player view', () => {
     renderCalendar();
     await userEvent.click(await screen.findByRole('button', { name: /10:00 AM.*Available/ }));
     await userEvent.click(screen.getByRole('button', { name: /Reserve & continue/ }));
-    expect(await screen.findByText(/connection dropped.*won't be double-booked/)).toBeInTheDocument();
+    expect(await screen.findByText(/connection dropped.*won't be double-booked/, undefined, { timeout: 3000 })).toBeInTheDocument();
 
     routes['POST /api/bookings'] = () => jsonResponse(201, { booking: { id: 'b-ok' } });
     await userEvent.click(screen.getByRole('button', { name: /Reserve & continue/ }));

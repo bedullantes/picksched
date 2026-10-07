@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react';
+import type { Role } from './api/types';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { BookingsDashboard } from './pages/BookingsDashboard';
 import { AccountPage } from './pages/AccountPage';
 import { CheckoutPage } from './pages/CheckoutPage';
+import { DashboardPage } from './pages/DashboardPage';
+import { UnauthorizedPage } from './pages/UnauthorizedPage';
 import { LoginPage } from './pages/LoginPage';
 import { PaymentResultPage } from './pages/PaymentResultPage';
 
@@ -25,6 +28,13 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Signed-in users with another role are sent to the unauthorized page. */
+function RequireRole({ role, children }: { role: Role; children: ReactNode }) {
+  const { user } = useAuth();
+  if (user && user.role !== role) return <Navigate to="/unauthorized" replace />;
+  return <>{children}</>;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
@@ -33,6 +43,8 @@ export function AppRoutes() {
       <Route path="/bookings/:id/checkout" element={<RequireAuth><CheckoutPage /></RequireAuth>} />
       <Route path="/bookings/:id/payment" element={<RequireAuth><PaymentResultPage /></RequireAuth>} />
       <Route path="/account" element={<RequireAuth><AccountPage /></RequireAuth>} />
+      <Route path="/dashboard" element={<RequireAuth><RequireRole role="admin"><DashboardPage /></RequireRole></RequireAuth>} />
+      <Route path="/unauthorized" element={<RequireAuth><UnauthorizedPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/bookings" replace />} />
     </Routes>
   );
