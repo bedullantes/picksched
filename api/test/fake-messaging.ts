@@ -87,6 +87,13 @@ export async function startFakeMessaging(opts: { sendgridKey: string; twilioSid:
 
   // Inspection page for local development: what would have been sent.
   app.get('/_sent', (_req, res) => res.json({ emails, sms }));
+  // Test control: simulate provider responses from another process (end-to-end tests).
+  app.post('/_control', (req, res) => {
+    for (const k of ['sendgridStatus', 'twilioStatus', 'twilioErrorCode', 'delayMs'] as const) {
+      if (typeof req.body?.[k] === 'number') state[k] = req.body[k];
+    }
+    res.json(state);
+  });
 
   const server = app.listen(opts.port ?? 0);
   await new Promise<void>((r) => server.once('listening', () => r()));

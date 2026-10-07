@@ -1,12 +1,17 @@
 {
   "name": "picksched",
   "private": true,
-  "workspaces": ["api", "web"],
+  "workspaces": [
+    "api",
+    "web",
+    "e2e"
+  ],
   "scripts": {
     "dev:api": "npm run dev -w api",
     "dev:web": "npm run dev -w web",
     "build": "npm run build -w api && npm run build -w web",
     "test": "npm test -w api && npm test -w web",
-    "typecheck": "npm run typecheck -w api && npm run typecheck -w web"
+    "typecheck": "npm run typecheck -w api && npm run typecheck -w web && npm run typecheck -w e2e",
+    "test:e2e": "npm run build && npm test -w e2e"
   }
 }

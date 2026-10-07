@@ -41,13 +41,27 @@ const ignoreOverlap = (err: { code?: string }) => {
 
 const tomorrow = (await db.query(`SELECT ((now() AT TIME ZONE 'Asia/Manila')::date + 1)::text AS d`)).rows[0].d;
 const at = (h: number) => `${tomorrow} ${String(h).padStart(2, '0')}:00+08`;
-const seedBooking = async (court: string, who: string, h: number, len: number, status: 'pending' | 'confirmed') => {
+const seedBooking = async (court: string, who: string, h: number, len: number, status: 'confirmed') => {
   await db.query(
     `INSERT INTO bookings (court_id, player_id, start_time, end_time, status, payment_status)
      SELECT $1, $2, $3::timestamptz, $4::timestamptz, $5::booking_status,
             CASE WHEN $5::text = 'confirmed' THEN 'paid' ELSE 'unpaid' END::booking_payment_status
      WHERE NOT EXISTS (SELECT 1 FROM bookings WHERE court_id = $1 AND start_time = $3::timestamptz AND status <> 'cancelled')`,
     [court, who, at(h), at(h + len), status]).catch(ignoreOverlap);
+  // A confirmed booking always has a paid payment behind it (as if paid by GCash),
+  // so the dashboard's occupancy and revenue agree with the transaction log.
+  if (status === 'confirmed') {
+    await db.query(
+      `INSERT INTO transactions (booking_id, amount, status, provider_ref_id, processed_at, payment_method,
+                                 commission_rate_bps, platform_fee, owner_net)
+       SELECT b.id, 0, 'paid', 'seed_' || b.id, now(), 'gcash', platform_commission_bps(),
+              round(b.total_amount * platform_commission_bps() / 10000.0),
+              b.total_amount - round(b.total_amount * platform_commission_bps() / 10000.0)
+       FROM bookings b
+       WHERE b.court_id = $1 AND b.start_time = $2::timestamptz AND b.status = 'confirmed'
+         AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.booking_id = b.id)`,
+      [court, at(h)]);
+  }
 };
 await seedBooking(courts[0], player, 8, 2, 'confirmed');
 await seedBooking(courts[0], player2, 17, 1, 'confirmed');
