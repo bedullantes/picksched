@@ -32,7 +32,10 @@ export function SlotGrid({ columns, courtsById, timeZone, role, now, offline, on
     columns.flatMap((c) => c.slots).find((s) => timeKey(s.startTime, timeZone) === key)!;
 
   return (
-    <div className="slot-grid" style={{ ['--rows' as string]: rows.length, ['--cols' as string]: columns.length }}>
+    <div
+      className={`slot-grid${columns.length > 4 ? ' slot-grid--dense' : ''}`}
+      style={{ ['--rows' as string]: rows.length, ['--cols' as string]: columns.length }}
+    >
       <div className="time-gutter" aria-hidden="true">
         <div className="column-header" />
         <div className="column-slots">

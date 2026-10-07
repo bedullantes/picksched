@@ -65,7 +65,7 @@ export function LoginPage() {
         <button type="submit" className="button-primary button-block" disabled={busy}>
           {busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
         </button>
-        <button type="button" className="link-button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); }}>
+        <button type="button" className="link-button link-button--standalone" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); }}>
           {mode === 'login' ? 'New here? Create an account' : 'Already have an account? Sign in'}
         </button>
       </form>

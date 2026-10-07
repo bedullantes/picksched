@@ -13,6 +13,7 @@ A SaaS pickleball court booking system for independent court owners.
 - `docs/payments.md`: PayMongo (GCash / Maya) payments, webhooks and commission
 - `docs/notifications.md`: booking confirmation email (SendGrid) and SMS (Twilio)
 - `docs/dashboard.md`: owner dashboard: bookings, occupancy and revenue
+- `docs/responsive-design.md`: breakpoints, touch targets and mobile layout rules
 
 ## Running locally
 

@@ -12,6 +12,8 @@ const OCCUPANCY_COLOR = '#2a78d6';
 
 type Preset = '7d' | '30d' | 'month' | 'custom';
 
+const TABLE_COLUMNS = ['Date', 'Bookings', 'Booked / open hours', 'Occupancy', 'Payments', 'Revenue', 'Net'] as const;
+
 function presetRange(preset: Exclude<Preset, 'custom'>, today: string): { start: string; end: string } {
   if (preset === '7d') return { start: addDays(today, -6), end: today };
   if (preset === '30d') return { start: addDays(today, -29), end: today };
@@ -251,29 +253,31 @@ export function DashboardPage() {
 
               {(hasRevenue || hasCapacity) && (
                 <div className="table-toggle">
-                  <button type="button" className="link-button" aria-expanded={showTable} onClick={() => setShowTable(!showTable)}>
+                  <button type="button" className="link-button link-button--standalone" aria-expanded={showTable} onClick={() => setShowTable(!showTable)}>
                     {showTable ? 'Hide data table' : 'Show data table'}
                   </button>
                 </div>
               )}
               {showTable && (
                 <div className="table-wrap">
-                  <table className="data-table">
+                  {/* Explicit roles keep table semantics when small screens restyle rows as cards. */}
+                  <table className="data-table" role="table">
                     <caption className="visually-hidden">Daily bookings, occupancy and revenue</caption>
-                    <thead>
-                      <tr><th scope="col">Date</th><th scope="col">Bookings</th><th scope="col">Booked / open hours</th>
-                        <th scope="col">Occupancy</th><th scope="col">Payments</th><th scope="col">Revenue</th><th scope="col">Net</th></tr>
+                    <thead role="rowgroup">
+                      <tr role="row">
+                        {TABLE_COLUMNS.map((c) => <th key={c} scope="col" role="columnheader">{c}</th>)}
+                      </tr>
                     </thead>
-                    <tbody>
+                    <tbody role="rowgroup">
                       {data.daily.map((d) => (
-                        <tr key={d.date}>
-                          <th scope="row">{formatDate(d.date, 'short')}</th>
-                          <td>{d.bookings}</td>
-                          <td>{d.bookedHours} / {d.availableHours}</td>
-                          <td>{pct(d.occupancyRate)}</td>
-                          <td>{d.payments}</td>
-                          <td>{formatMoney(d.revenue, currency)}</td>
-                          <td>{formatMoney(d.netRevenue, currency)}</td>
+                        <tr key={d.date} role="row">
+                          <th scope="row" role="rowheader">{formatDate(d.date, 'short')}</th>
+                          <td role="cell" data-label={TABLE_COLUMNS[1]}>{d.bookings}</td>
+                          <td role="cell" data-label={TABLE_COLUMNS[2]}>{d.bookedHours} / {d.availableHours}</td>
+                          <td role="cell" data-label={TABLE_COLUMNS[3]}>{pct(d.occupancyRate)}</td>
+                          <td role="cell" data-label={TABLE_COLUMNS[4]}>{d.payments}</td>
+                          <td role="cell" data-label={TABLE_COLUMNS[5]}>{formatMoney(d.revenue, currency)}</td>
+                          <td role="cell" data-label={TABLE_COLUMNS[6]}>{formatMoney(d.netRevenue, currency)}</td>
                         </tr>
                       ))}
                     </tbody>

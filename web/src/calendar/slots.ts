@@ -60,7 +60,8 @@ export function describeSlot(slot: Slot, role: Role, court?: Court, now?: string
       if (role === 'admin' && now && slot.endTime > now) {
         return { label: 'Too soon to book', detail: 'Block time', status: 'Too soon for players to book' };
       }
-      return { label: 'Unavailable', status: 'Unavailable' };
+      // Soft hyphen: narrow week columns break it as 'Unavail-able' instead of truncating.
+      return { label: 'Unavail\u00adable', status: 'Unavailable' };
   }
 }
 
