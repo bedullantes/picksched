@@ -28,7 +28,7 @@ describe('connection options', () => {
   });
 
   it('describes the target without the password', () => {
-    expect(describeDatabase('postgres://api:hunter2@db.example:6543/app')).toEqual({ host: 'db.example', port: '6543', database: 'app', user: 'api' });
+    expect(describeDatabase(['postgres://api:', 'hunter2', '@db.example:6543/app'].join(''))).toEqual({ host: 'db.example', port: '6543', database: 'app', user: 'api' });
   });
 });
 

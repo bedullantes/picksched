@@ -69,8 +69,10 @@ per environment:
 - **In the repository:** `.env`, `.env.*` (except `.env.development` and
   `*.example`), `*.pem` and `*.key` are git-ignored. `npm run check:secrets`
   scans tracked files, and `npm run check:secrets -- --history` scans every
-  commit. Both pass today. The only key-like strings in the repository are
-  simulator placeholders such as `sk_test_local`. Run the scan in CI.
+  commit. Both pass. The only key-like strings in the repository are
+  simulator placeholders such as `sk_test_local`. Five invented test values
+  in an older commit are recorded as reviewed false positives in
+  `.secrets-allowlist`, by hash. Run the scan in CI.
 - **Logs:** values of fields named like secrets (password, token, secret,
   authorization, cookie, api key, signature) are replaced with
   `[REDACTED]`. Passwords inside connection strings and PayMongo, SendGrid
@@ -175,9 +177,40 @@ Other hardening:
     probing
   - notifications stuck `pending` for more than 5 minutes
 
+## Container image
+
+The root [`Dockerfile`](../Dockerfile) builds one image (Node 22 Alpine,
+about 280 MB) that serves the API and the web app on port 3000. It runs as
+the non-root `node` user and has a built-in health check on `/api/health`.
+It contains no configuration or secrets: `.env` files, keys and
+certificates are excluded by `.dockerignore`. Any container host can run it,
+for example Render, Fly.io, Railway, Google Cloud Run, AWS ECS/App Runner,
+Azure Container Apps or Kubernetes.
+
+```sh
+docker build -t picksched .
+# release step (same image, production environment + MIGRATION_DATABASE_URL)
+docker run --rm --env-file prod.env picksched npm run migrate -w api
+docker run --rm --env-file prod.env picksched npm run preflight -w api
+# serve
+docker run -d -p 3000:3000 --env-file prod.env picksched
+```
+
+`prod.env` here stands for your platform's way of injecting environment
+variables. Prefer its secret store, or mount secrets as files and use
+`NAME_FILE`. The image defaults to `NODE_ENV=production`; set
+`APP_ENV=staging` for staging.
+
+Verified locally: the image built, then migrate, preflight and the server
+all ran in containers. The database connection used `verify-full` TLS with
+an unprivileged role and secrets mounted as files. The health check reported
+`healthy`, the security headers and HTTP→HTTPS redirect were present,
+sign-up worked, and `docker stop` shut down cleanly (exit 0).
+
 ## Release procedure
 
-1. `npm ci && npm run build`. Serve with `WEB_DIST=web/dist node api/dist/server.js`.
+1. Build the image (or `npm ci && npm run build` and serve with
+   `WEB_DIST=web/dist node api/dist/server.js`).
 2. `npm run migrate -w api`, with `MIGRATION_DATABASE_URL`.
 3. `APP_ENV=production npm run preflight -w api`, with production's
    environment. It validates the configuration and checks the database:

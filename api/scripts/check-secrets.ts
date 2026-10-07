@@ -8,12 +8,18 @@
  *
  * Simulator placeholders used in tests and development (sk_test_local,
  * SG.local, ...) are deliberately too short to match.
+ *
+ * Reviewed false positives (e.g. fake values in old commits) are listed in
+ * .secrets-allowlist at the repository root as the SHA-256 of the trimmed
+ * line, so the allowlist itself contains nothing secret-looking:
+ *   npm run check:secrets -- --history --print-hashes
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-export interface Finding { file: string; line: number; rule: string; excerpt: string }
+export interface Finding { file: string; line: number; rule: string; excerpt: string; /** the whole trimmed line (for the allowlist hash) */ full: string }
 
 const RULES: [string, RegExp][] = [
   ['PayMongo secret/public key', /\b[sp]k_(live|test)_[A-Za-z0-9]{16,}/],
@@ -33,7 +39,7 @@ export function scanText(file: string, text: string): Finding[] {
   const findings: Finding[] = [];
   text.split('\n').forEach((line, i) => {
     for (const [rule, re] of RULES) {
-      if (re.test(line)) findings.push({ file, line: i + 1, rule, excerpt: line.trim().slice(0, 120) });
+      if (re.test(line)) findings.push({ file, line: i + 1, rule, excerpt: line.trim().slice(0, 120), full: line.trim() });
     }
   });
   return findings;
@@ -44,7 +50,7 @@ export function scanRepository(root: string): Finding[] {
   const findings: Finding[] = [];
   for (const file of files) {
     if (/(^|\/)\.env(\.|$)/.test(file) && !ALLOWED_ENV_FILE.test(file)) {
-      findings.push({ file, line: 0, rule: 'Committed .env file', excerpt: file });
+      findings.push({ file, line: 0, rule: 'Committed .env file', excerpt: file, full: file });
     }
     if (/\.(png|jpe?g|gif|ico|woff2?|zip|lock)$/.test(file) || file.endsWith('package-lock.json')) continue;
     let text: string;
@@ -74,13 +80,28 @@ export function scanHistory(root: string): Finding[] {
   return findings;
 }
 
+export const lineHash = (line: string) => createHash('sha256').update(line.trim()).digest('hex');
+
+/** Hashes of reviewed, known-fake lines (comments and blank lines ignored). */
+export function loadAllowlist(root: string): Set<string> {
+  const file = path.join(root, '.secrets-allowlist');
+  if (!existsSync(file)) return new Set();
+  return new Set(readFileSync(file, 'utf8').split('\n').map((l) => l.replace(/#.*/, '').trim()).filter(Boolean));
+}
+
 if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
   const history = process.argv.includes('--history');
-  const findings = history ? scanHistory(root) : scanRepository(root);
+  const allow = loadAllowlist(root);
+  const all = history ? scanHistory(root) : scanRepository(root);
+  const findings = all.filter((f) => !allow.has(lineHash(f.line ? f.full : f.excerpt)));
+  if (all.length > findings.length) console.log(`${all.length - findings.length} reviewed false positive(s) ignored (.secrets-allowlist).`);
   if (findings.length) {
     console.error(`Possible secrets found (${findings.length}):`);
-    for (const f of findings) console.error(`  ${f.file}${f.line ? `:${f.line}` : ''}  [${f.rule}]  ${f.excerpt}`);
+    for (const f of findings) {
+      console.error(`  ${f.file}${f.line ? `:${f.line}` : ''}  [${f.rule}]  ${f.excerpt}`);
+      if (process.argv.includes('--print-hashes')) console.error(`    sha256: ${lineHash(f.line ? f.full : f.excerpt)}`);
+    }
     console.error('\nMove them to the environment / secret manager (see docs/deployment.md) and rotate any real key that was committed.');
     process.exit(1);
   }

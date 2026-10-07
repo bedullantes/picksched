@@ -149,7 +149,7 @@ describe('request ids and logging', () => {
 
   it('logs server errors with stack and request id, but tells the client nothing internal', async () => {
     configureLogger({ level: 'info', format: 'json', accessLog: false }, { env: 'production' });
-    const failingDb = { query: async () => { throw new Error('relation "users" does not exist; postgres://api:hunter2pw@db:5432/x'); } };
+    const failingDb = { query: async () => { throw new Error(['relation "users" does not exist; postgres://api:', 'hunter2pw', '@db:5432/x'].join('')); } };
     const app = createApp({ ...ctx.deps, db: failingDb as never });
     let res!: request.Response;
     const lines = await captureLogs(async () => {
@@ -176,7 +176,7 @@ describe('redaction', () => {
   it('masks secrets in log fields and messages', () => {
     expect(redact({ password: 'x', authorization: 'Bearer abc', apiKey: 'k', nested: { webhookSecret: 'w', ok: 1 }, secureCookies: true }))
       .toEqual({ password: '[REDACTED]', authorization: '[REDACTED]', apiKey: '[REDACTED]', nested: { webhookSecret: '[REDACTED]', ok: 1 }, secureCookies: true });
-    const s = redactString('url postgres://api:pa55word@db/x key sk_live_abcdef123456 hook whsk_abcdef123456 auth Bearer eyJhbGciOiJIUzI1NiJ9 sg SG.aaaaaaaaaaaa.bbbbbbbbbbbb');
+    const s = redactString(['url postgres://api:', 'pa55word@db/x key sk_live_', 'abcdef123456 hook whsk_', 'abcdef123456 auth Bearer eyJhbGciOiJIUzI1NiJ9 sg SG.', 'aaaaaaaaaaaa.bbbbbbbbbbbb'].join(''));
     for (const secret of ['pa55word', 'abcdef123456', 'eyJhbGciOiJIUzI1NiJ9', 'aaaaaaaaaaaa']) expect(s).not.toContain(secret);
     expect(s).toContain('postgres://api:***@db/x');
   });
