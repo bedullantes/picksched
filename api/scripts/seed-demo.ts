@@ -5,11 +5,12 @@
  * Usage: DATABASE_URL=postgres://... npm run seed:demo -w api
  */
 import bcrypt from 'bcryptjs';
-import pg from 'pg';
+import { scriptDatabase } from './db-connection.js';
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error('Set DATABASE_URL');
-const db = new pg.Client({ connectionString: url });
+const target = scriptDatabase();
+// Demo accounts have a published password: never create them in production.
+if (target.appEnv === 'production') throw new Error('Refusing to seed demo data with APP_ENV=production');
+const db = target.client();
 await db.connect();
 
 const hash = await bcrypt.hash('pickleball123', 10);

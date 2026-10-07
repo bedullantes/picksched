@@ -5,7 +5,7 @@
  */
 import { expect, request as playwrightRequest, test, type APIRequestContext, type Page } from '@playwright/test';
 import { APP_URL } from '../env';
-import { bookingRow, localDate, loginViaUi, registerViaApi, sql, uniqueEmail } from './support';
+import { bookingRow, watchCspViolations, localDate, loginViaUi, registerViaApi, sql, uniqueEmail } from './support';
 
 const at = (date: string, h: number) => `${date}T${String(h).padStart(2, '0')}:00:00+08:00`;
 const tile = (page: Page, label: string) => page.locator('.stat-tile', { has: page.locator('.stat-label', { hasText: new RegExp(`^${label}$`) }) });
@@ -51,6 +51,7 @@ test.afterAll(async () => {
 });
 
 test('the dashboard updates in real time when a payment confirms a booking', async ({ page }) => {
+  const cspViolations = watchCspViolations(page);
   await loginViaUi(page, ownerEmail);
   await page.goto('/dashboard');
   await expect(tile(page, 'Bookings, next 7 days').locator('.stat-value')).toHaveText('0');
@@ -71,4 +72,5 @@ test('the dashboard updates in real time when a payment confirms a booking', asy
   await expect(tile(page, 'Bookings, next 7 days').locator('.stat-value')).toHaveText('2');
   await expect(tile(page, 'Occupancy, next 7 days').locator('.stat-detail')).toHaveText('3 of 224 court-hours booked');
   await expect(tile(page, 'Revenue').locator('.stat-value')).toHaveText(/^₱1,500(\.00)?$/);
+  expect(cspViolations).toEqual([]); // charts and live updates work under the Content-Security-Policy
 });

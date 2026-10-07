@@ -12,6 +12,7 @@
     "build": "npm run build -w api && npm run build -w web",
     "test": "npm test -w api && npm test -w web",
     "typecheck": "npm run typecheck -w api && npm run typecheck -w web && npm run typecheck -w e2e",
-    "test:e2e": "npm run build && npm test -w e2e"
+    "test:e2e": "npm run build && npm test -w e2e",
+    "check:secrets": "npm run check:secrets -w api"
   }
 }

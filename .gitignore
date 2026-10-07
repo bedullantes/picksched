@@ -2,6 +2,11 @@ node_modules/
 dist/
 *.log
 .env
+.env.*
+!.env.development
+!.env.*.example
+*.pem
+*.key
 coverage/
 test-results/
 e2e/test-results/

@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events';
 import pg from 'pg';
+import type { DatabaseConfig } from './config.js';
+import { connectionOptions } from './db.js';
 
 export interface ScheduleChange {
   courtId: string;
@@ -22,7 +24,7 @@ export class ScheduleEvents extends EventEmitter {
   private retryMs = 1000;
   private everConnected = false;
 
-  constructor(private readonly databaseUrl: string) {
+  constructor(private readonly databaseUrl: string, private readonly dbConfig?: DatabaseConfig) {
     super();
     this.setMaxListeners(0);
   }
@@ -41,7 +43,7 @@ export class ScheduleEvents extends EventEmitter {
 
   private async connect(): Promise<void> {
     if (this.stopped) return;
-    const client = new pg.Client({ connectionString: this.databaseUrl });
+    const client = new pg.Client(connectionOptions(this.databaseUrl, this.dbConfig));
     let failed = false;
     const onFailure = () => {
       if (failed) return;

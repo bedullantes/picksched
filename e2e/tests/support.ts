@@ -151,3 +151,15 @@ export async function sqlAsApp(userId: string, text: string, params: unknown[] =
     client.release();
   }
 }
+
+/** Collects Content-Security-Policy violations reported by the browser on this page. */
+export function watchCspViolations(page: Page) {
+  const violations: string[] = [];
+  page.on('console', (msg) => {
+    if (/Content Security Policy/i.test(msg.text())) violations.push(msg.text());
+  });
+  page.on('pageerror', (err) => {
+    if (/Content Security Policy/i.test(err.message)) violations.push(err.message);
+  });
+  return violations;
+}

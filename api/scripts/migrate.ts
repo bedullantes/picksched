@@ -1,17 +1,18 @@
 /**
  * Applies db/migrations/*.sql in order, skipping ones already applied.
  * Usage: DATABASE_URL=postgres://... npm run migrate -w api
- * The user needs privileges to create extensions and roles (migration 002).
+ * The user needs privileges to create extensions and roles (migration 002);
+ * in staging/production set MIGRATION_DATABASE_URL to such an account and
+ * keep DATABASE_URL for the app's less privileged user. Uses the same TLS
+ * settings as the server (DATABASE_SSL, DATABASE_CA_CERT).
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import pg from 'pg';
+import { scriptDatabase } from './db-connection.js';
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error('Set DATABASE_URL');
-
+const db = scriptDatabase({ migration: true });
 const dir = path.resolve(import.meta.dirname, '../../db/migrations');
-const client = new pg.Client({ connectionString: url });
+const client = db.client();
 await client.connect();
 await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
   filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`);

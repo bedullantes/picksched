@@ -4,7 +4,7 @@
  */
 import { expect, test } from '@playwright/test';
 import {
-  bookingRow, goToPayMongo, localDate, messagesFor, openDate, registerViaUi, reserve, slot, sql, uniqueEmail, DEMO,
+  bookingRow, goToPayMongo, watchCspViolations, localDate, messagesFor, openDate, registerViaUi, reserve, slot, sql, uniqueEmail, DEMO,
 } from './support';
 
 test('a player finds a slot, pays with GCash and gets a confirmed booking', async ({ page }, info) => {
@@ -16,6 +16,7 @@ test('a player finds a slot, pays with GCash and gets a confirmed booking', asyn
   const date = await localDate(2);
   const email = uniqueEmail(`journey-${info.project.name}`);
   const startedAt = Date.now();
+  const cspViolations = watchCspViolations(page);
 
   await test.step('sign up as a player with a mobile number', async () => {
     await registerViaUi(page, { email, phone });
@@ -91,5 +92,9 @@ test('a player finds a slot, pays with GCash and gets a confirmed booking', asyn
     expect(owner.emails.some((e) => e.text.toLowerCase().includes(ref.toLowerCase()))).toBe(true);
     const rows = await sql(`SELECT channel, status FROM notifications WHERE booking_id = $1 ORDER BY kind, channel`, [bookingId]);
     expect(rows.every((r) => r.status === 'sent' || r.status === 'delivered')).toBe(true);
+  });
+
+  await test.step('the production security headers never blocked anything in the app', async () => {
+    expect(cspViolations).toEqual([]);
   });
 });

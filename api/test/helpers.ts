@@ -26,6 +26,13 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
       transport: 'log', intervalMs: 60_000, email: { provider: 'log' }, sms: { provider: 'log' }, defaultCountryCode: '63',
     },
     paymentJobIntervalMs: 60_000,
+    appEnv: 'development',
+    database: {
+      sslMode: 'disable', poolMax: 20, poolMin: 0, idleTimeoutMs: 30_000, connectionTimeoutMs: 5000,
+      maxLifetimeSeconds: 0, applicationName: 'picksched-api-test',
+    },
+    security: { trustProxy: false, hsts: false, hstsMaxAgeSeconds: 63_072_000, httpsRedirect: false },
+    logging: { level: 'warn', format: 'pretty', accessLog: false },
     ...overrides,
   };
 }

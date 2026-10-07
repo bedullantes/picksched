@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler } from 'express';
 import { ZodError } from 'zod';
+import { log } from './logger.js';
 
 export class ApiError extends Error {
   constructor(
@@ -73,7 +74,7 @@ export function fromDbError(err: unknown): ApiError | null {
   return null;
 }
 
-export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   let apiErr: ApiError;
   if (err instanceof ApiError) {
     apiErr = err;
@@ -82,11 +83,26 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
       err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })));
   } else if ((err as { type?: string })?.type === 'entity.parse.failed') {
     apiErr = new ApiError(400, 'BAD_REQUEST', 'The request body is not valid JSON.');
+  } else if ((err as { type?: string })?.type === 'entity.too.large') {
+    apiErr = new ApiError(413, 'PAYLOAD_TOO_LARGE', 'The request is too large.');
   } else {
     apiErr = fromDbError(err) ?? new ApiError(500, 'INTERNAL', 'Something went wrong. Please try again.');
-    if (apiErr.status >= 500) console.error(err);
   }
+  // Full details go to the error log (with the request id); the client only
+  // gets the safe message, never stack traces or database errors.
+  if (apiErr.status >= 500) {
+    log.error('Request failed', {
+      type: 'error', requestId: req.id, method: req.method, path: req.originalUrl.split('?')[0],
+      userId: req.user?.id, status: apiErr.status, code: apiErr.code, err,
+    });
+  }
+  if (res.headersSent) return;
   res.status(apiErr.status).json({
-    error: { code: apiErr.code, message: apiErr.message, ...(apiErr.details ? { details: apiErr.details } : {}) },
+    error: {
+      code: apiErr.code, message: apiErr.message,
+      ...(apiErr.details ? { details: apiErr.details } : {}),
+      // Lets support find the matching log entry.
+      ...(apiErr.status >= 500 && req.id ? { requestId: req.id } : {}),
+    },
   });
 };

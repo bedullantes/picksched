@@ -64,6 +64,7 @@ export default defineConfig({
       reuseExistingServer: false,
       stdout: 'pipe',
       env: {
+        NODE_ENV: 'test', // development rules, but no api/.env.* files: everything is set here
         DATABASE_URL,
         PORT: String(APP_PORT),
         SESSION_SECRET: 'e2e-session-secret-e2e-session-secret',
