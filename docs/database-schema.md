@@ -5,7 +5,8 @@ PostgreSQL 14+. The source of truth is the migrations, applied in order:
 1. [`001_initial_schema.sql`](../db/migrations/001_initial_schema.sql): tables, relationships, integrity constraints and the no-overlap rule
 2. [`002_booking_holds_and_access_control.sql`](../db/migrations/002_booking_holds_and_access_control.sql): booking hold expiry, prices computed by the database, booking status rules, the PayMongo result function and role-based access control
 3. [`003_calendar_and_maintenance.sql`](../db/migrations/003_calendar_and_maintenance.sql): court opening hours, maintenance blocks, the 1-hour advance-booking rule, owner rescheduling, calendar availability and live change notifications
-4. [`004_booking_workflow.sql`](../db/migrations/004_booking_workflow.sql): status `pending` renamed to `pending_payment`, `hold_expires_at` renamed to `expires_at`, a 3-minute checkout hold, and owners blocked from changing bookings during checkout
+4. [`004_booking_workflow.sql`](../db/migrations/004_booking_workflow.sql): status `pending` renamed to `pending_payment`, `hold_expires_at` renamed to `expires_at`, a 3-minute checkout hold (15 minutes since migration 005), and owners blocked from changing bookings during checkout
+5. [`005_paymongo_payments.sql`](../db/migrations/005_paymongo_payments.sql): PayMongo payments: booking payment fields, transaction payment details and commission, webhook event log, refunds and the notifications outbox (see [payments.md](payments.md))
 
 ## Entity relationships
 
@@ -68,7 +69,9 @@ All foreign keys use `ON DELETE RESTRICT`: a court with bookings, or a booking w
 | total_amount | BIGINT | Centavos, ≥ 0. **Computed by the database** on insert: `hourly_rate × duration`, rounded. Later rate changes don't affect it |
 | currency | CHAR(3) | Copied from the court |
 | cancelled_at | TIMESTAMPTZ | Set if and only if `status = 'cancelled'` |
-| expires_at | TIMESTAMPTZ | When an unpaid `pending_payment` booking releases its slot (insert time + 3 min). Required while `pending_payment` |
+| payment_intent_id | TEXT | PayMongo payment intent (`pi_…`) once checkout starts; unique |
+| payment_status | `booking_payment_status` | `unpaid`, `processing`, `paid`, `failed`, `expired`, `refunded` |
+| expires_at | TIMESTAMPTZ | When an unpaid `pending_payment` booking releases its slot (insert time + 15 min). Required while `pending_payment` |
 
 ### `court_blocks` (maintenance)
 | Column | Type | Notes |
@@ -91,6 +94,18 @@ A block can't overlap an active (`pending_payment` or `confirmed`) booking, and 
 | amount | BIGINT | Centavos, > 0. **Copied from the booking's `total_amount`** on insert; same integer format PayMongo uses. Free bookings (rate 0) don't need a transaction |
 | currency | CHAR(3) | Default `PHP` |
 | processed_at | TIMESTAMPTZ | Set if and only if status is final (`paid`, `failed`, `refunded`) |
+| provider | TEXT | `paymongo` |
+| checkout_session_id / checkout_url | TEXT | The PayMongo checkout session (`cs_…`) and its hosted page |
+| payment_id | TEXT | PayMongo payment (`pay_…`) of the last attempt |
+| payment_method | TEXT | `gcash` or `paymaya` |
+| provider_fee | BIGINT | PayMongo's fee, centavos |
+| commission_rate_bps / platform_fee | INTEGER / BIGINT | Platform commission rate and amount, set when the transaction becomes `paid` |
+| owner_net | BIGINT | `amount − provider_fee − platform_fee` |
+| failure_code / failure_message | TEXT | Why the last attempt failed |
+| refund_id | TEXT | PayMongo refund, when one was issued |
+| provider_payload | JSONB | The latest PayMongo object for this payment |
+
+Every webhook event is also stored in `payment_events` (deduplicated by PayMongo event id). Payment details are covered in [payments.md](payments.md).
 
 ## Concurrency: no double-bookings
 
@@ -108,7 +123,7 @@ CONSTRAINT bookings_no_overlap EXCLUDE USING gist (
 
 ### Checkout holds (unpaid `pending_payment` bookings)
 
-A `pending_payment` booking holds its slot until `expires_at`, 3 minutes after it was created. The length comes from `booking_hold_interval()`; replace that function to change it. A hold that has expired is released in two ways:
+A `pending_payment` booking holds its slot until `expires_at`, 15 minutes after it was created. The length comes from `booking_hold_interval()`; replace that function to change it. A hold that has expired is released in two ways:
 
 1. **Automatically, when someone books an overlapping slot.** Before inserting, the database cancels any expired pending booking that overlaps the new one on the same court. A stale hold never blocks a real booking, even if the cleanup job is behind. This was tested with 5 simultaneous requests for a slot held by an expired booking: the hold was released, 1 request got the slot, and 4 were rejected.
 2. **In bulk, with `SELECT expire_stale_bookings();`.** The API runs this every 15 seconds (`HOLD_SWEEP_INTERVAL_MS`), so abandoned checkouts become `cancelled` and calendars update. It returns the number of bookings cancelled and is safe to run from several API instances at once.
@@ -160,7 +175,7 @@ An owner can't manually confirm an unpaid booking: once its hold expires, `confi
 
 - Amounts are integers in centavos, which is what PayMongo's REST API sends and receives. No conversion is needed.
 - Payment flow:
-  1. The player inserts a booking. The database prices it, and it starts as `pending_payment` with a 3-minute hold.
+  1. The player inserts a booking. The database prices it, and it starts as `pending_payment` with a 15-minute hold.
   2. The player inserts a transaction (`booking_id` only). The database copies the amount from the booking.
   3. The API creates the PayMongo Payment Intent for `amount` and stores its id: `UPDATE transactions SET provider_ref_id = 'pi_…'`.
   4. The webhook handler verifies the PayMongo signature, then calls `SELECT record_payment_result('pi_…', 'paid' | 'failed' | 'processing' | 'refunded')`.

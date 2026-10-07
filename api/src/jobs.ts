@@ -27,3 +27,23 @@ export function startHoldExpiry(deps: Pick<Deps, 'db' | 'config'>, intervalMs: n
   void run();
   return () => clearInterval(timer);
 }
+
+/** Runs `task` every `intervalMs` (and once now), logging failures. Returns a stop function. */
+export function every(name: string, intervalMs: number, task: () => Promise<unknown>): () => void {
+  let running = false;
+  const run = async () => {
+    if (running) return; // don't overlap slow runs
+    running = true;
+    try {
+      await task();
+    } catch (err) {
+      console.error(`${name} failed:`, (err as Error).message);
+    } finally {
+      running = false;
+    }
+  };
+  const timer = setInterval(run, intervalMs);
+  timer.unref();
+  void run();
+  return () => clearInterval(timer);
+}

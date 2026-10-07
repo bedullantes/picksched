@@ -254,3 +254,38 @@ button:disabled { cursor: not-allowed; }
   .modal { border-radius: 14px 14px 0 0; width: 100%; }
   .modal-footer > button { flex: 1 1 auto; }
 }
+
+/* Payments ------------------------------------------------------------------ */
+.button-link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.pay-methods { display: flex; align-items: center; gap: 8px; margin-top: 18px; color: var(--muted); font-size: 0.9rem; }
+.method-badge { padding: 3px 10px; border-radius: 6px; font-weight: 700; font-size: 0.82rem; color: #fff; }
+.method-badge--gcash { background: #0a56f0; }
+.method-badge--paymaya { background: #0c9b5b; }
+.processing {
+  display: flex; gap: 14px; align-items: center; margin-top: 18px; padding: 14px 16px;
+  border-radius: 10px; background: #f0fdfa; border: 1px solid #99f6e4;
+}
+.processing p { margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; }
+.spinner {
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  border: 3px solid #99f6e4; border-top-color: var(--primary); animation: spin 0.8s linear infinite;
+}
+.spinner--large { width: 44px; height: 44px; border-width: 4px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.5s; } }
+.result-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px;
+  box-shadow: var(--shadow); text-align: center; margin-top: 8px;
+}
+.result-card h1 { font-size: 1.4rem; margin-top: 12px; }
+.result-card > p { color: var(--muted); }
+.result-card .summary { text-align: left; margin-top: 18px; }
+.result-card .checkout-actions { justify-content: center; }
+.result-card .spinner--large { margin: 0 auto; }
+.result-icon {
+  width: 56px; height: 56px; border-radius: 50%; display: inline-grid; place-items: center;
+  font-size: 1.6rem; font-weight: 800; color: #fff;
+}
+.result-icon--success { background: #16a34a; }
+.result-icon--failed { background: var(--danger); }
+.result-icon--wait { background: #d97706; }

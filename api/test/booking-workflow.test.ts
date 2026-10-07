@@ -43,7 +43,7 @@ afterAll(async () => {
 });
 
 describe('reservation', () => {
-  it('creates a pending_payment booking with expires_at 3 minutes out, ready for payment', async () => {
+  it('creates a pending_payment booking with expires_at 15 minutes out, ready for payment', async () => {
     const before = Date.now();
     const res = await reserve(alice, slotBody(7));
     expect(res.status, JSON.stringify(res.body)).toBe(201);
@@ -58,7 +58,7 @@ describe('reservation', () => {
       'SELECT status, expires_at, created_at FROM bookings WHERE id = $1', [res.body.booking.id])).rows[0];
     expect(row.status).toBe('pending_payment');
     const holdMs = row.expires_at.getTime() - row.created_at.getTime();
-    expect(holdMs).toBe(3 * 60_000);
+    expect(holdMs).toBe(15 * 60_000);
     expect(row.expires_at.getTime()).toBeGreaterThan(before);
     expect(res.body.payment.expiresAt).toBe(row.expires_at.toISOString());
     expect(res.body.booking.expiresAt).toBe(row.expires_at.toISOString());

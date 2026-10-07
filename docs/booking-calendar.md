@@ -36,9 +36,9 @@ Pending (unpaid) bookings have a dashed outline. The database decides who sees w
 ## Booking flow
 
 1. The player clicks an **Available** slot. The **Confirm booking** modal opens with the court, date, time and price filled in. The player can extend the duration over consecutive open slots, up to 4 hours.
-2. **Reserve & continue** calls `POST /api/bookings` with an `Idempotency-Key`. In one database transaction, the API re-checks the slot against the live schedule (advance rule, opening hours and slot alignment, maintenance, other bookings) and inserts a `pending_payment` booking. Its `expires_at` holds the slot for 3 minutes. The response includes what the payment step needs (`payment.amount`, `payment.expiresAt`, `next: "payment"`).
+2. **Reserve & continue** calls `POST /api/bookings` with an `Idempotency-Key`. In one database transaction, the API re-checks the slot against the live schedule (advance rule, opening hours and slot alignment, maintenance, other bookings) and inserts a `pending_payment` booking. Its `expires_at` holds the slot for 15 minutes. The response includes what the payment step needs (`payment.amount`, `payment.expiresAt`, `next: "payment"`).
 3. The player goes to **Checkout** (`/bookings/:id/checkout`), which shows a hold countdown.
-4. **Proceed to payment** calls `POST /api/bookings/:id/checkout`, which checks on the server that the hold is still valid before payment. PayMongo checkout plugs in at this step (payments module). If the player doesn't pay in time, the API's expiry job cancels the booking and the slot reopens for everyone.
+4. **Pay** calls `POST /api/bookings/:id/checkout`, which re-checks the hold and opens a PayMongo checkout session. The player is redirected to PayMongo to pay with GCash or Maya, and the booking is confirmed when PayMongo's webhook reports the payment (see [payments.md](payments.md)). If the player doesn't pay in time, the API's expiry job cancels the booking and the slot reopens for everyone.
 
 ## Reservations
 
@@ -48,7 +48,7 @@ Pending (unpaid) bookings have a dashed outline. The database decides who sees w
 |---|---|
 | Validate | The court ID is a UUID; times are ISO 8601, or `date` (YYYY-MM-DD) plus `time` (HH:MM, court-local). Malformed input gets **400 BAD_REQUEST**. Past, too soon (< 1 hour), off the slot grid or outside opening hours gets **400**. An unknown court gets **404**. |
 | Check and insert, atomically | One database transaction re-checks the live schedule and inserts the booking. The exclusion constraint and the per-court lock decide races: of N simultaneous requests for a slot, exactly 1 succeeds (tested with 10). The rest get **409 SLOT_UNAVAILABLE**: *"This time slot is no longer available. Someone else may have just booked it."* |
-| Hold | The row is created with `status = 'pending_payment'` and `expires_at = now() + 3 minutes`. Nobody else can take the slot until it's paid, cancelled or expired. |
+| Hold | The row is created with `status = 'pending_payment'` and `expires_at = now() + 15 minutes`. Nobody else can take the slot until it's paid, cancelled or expired. |
 | Respond | **201** with `{ booking, payment: { provider: 'paymongo', amount, currency, expiresAt }, next: 'payment', replayed: false }`, which the UI uses to open the payment step. |
 | Expire | If unpaid by `expires_at`, the API's expiry job (every 15 seconds) sets it to `cancelled` and calendars reopen the slot. |
 
@@ -95,9 +95,12 @@ All endpoints are under `/api`. Errors look like `{ "error": { "code", "message"
 | `GET /auth/me` | Signed in | Current user |
 | `GET /courts[?mine=1]` | Anyone | Visible courts (`mine=1`: the owner's own courts) |
 | `GET /availability?start=YYYY-MM-DD&days=1..14[&courtId][&mine=1]` | Anyone | Slots with status (see `get_availability`) |
-| `POST /bookings` `{courtId, startTime, endTime}` or `{courtId, date, time, durationMinutes?}`; optional `Idempotency-Key` header | Signed in | Reserve a slot: `pending_payment` with a 3-minute hold (see [Reservations](#reservations)) |
+| `POST /bookings` `{courtId, startTime, endTime}` or `{courtId, date, time, durationMinutes?}`; optional `Idempotency-Key` header | Signed in | Reserve a slot: `pending_payment` with a 15-minute hold (see [Reservations](#reservations)) |
 | `GET /bookings/:id` | Player or owner | Booking details |
-| `POST /bookings/:id/checkout` | The booking's player | Final hold check before payment |
+| `POST /bookings/:id/checkout` | The booking's player (player role) | Re-check the hold and open PayMongo checkout; returns `payment.checkoutUrl` |
+| `POST /bookings/:id/payment/verify` | Player or owner | Ask PayMongo for the result now (if the webhook is late) |
+| `POST /webhooks/paymongo` | PayMongo (signed) | Payment results |
+| `GET /notifications` | Signed in | The user's notifications |
 | `POST /bookings/:id/cancel` | Player or owner | Cancel |
 | `POST /bookings/:id/confirm` | Owner | Confirm manually (not for unpaid bookings) |
 | `PATCH /bookings/:id` `{courtId?, startTime, endTime}` | Owner | Reschedule |

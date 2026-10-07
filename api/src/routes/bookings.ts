@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../auth.js';
 import { asUser, type Deps } from '../context.js';
@@ -6,6 +6,7 @@ import type { Tx } from '../db.js';
 import { ApiError } from '../errors.js';
 import * as s from '../serialize.js';
 import { isoDate } from './availability.js';
+import { startCheckout, syncFromPayMongo } from '../payments.js';
 
 const timeRange = z.object({
   startTime: z.iso.datetime({ offset: true }),
@@ -206,17 +207,39 @@ export function bookingRoutes(deps: Deps) {
     res.status(201).json(reservationResponse(row, false));
   });
 
-  r.get('/:id', async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const row = await asUser(deps, req, (tx) => loadBooking(tx, id));
-    res.json({ booking: { ...s.booking(row), isMine: row.is_mine, holdExpired: row.hold_expired } });
+  const loadWithPayment = (req: Request, id: string) => asUser(deps, req, async (tx) => {
+    const row = await loadBooking(tx, id);
+    const t = (await tx.query(
+      `SELECT status, payment_method, failure_code, failure_message, amount, platform_fee, provider_fee, owner_net,
+              processed_at, refund_id
+       FROM transactions WHERE booking_id = $1`, [id])).rows[0];
+    return { row, t };
   });
 
-  // Final check before payment: is the player's hold still valid?
+  const withPayment = (row: Record<string, any>, t: Record<string, any> | undefined) => ({
+    ...s.booking(row),
+    isMine: row.is_mine,
+    holdExpired: row.hold_expired,
+    payment: t ? s.payment(t, row.is_mine) : null,
+  });
+
+  r.get('/:id', async (req, res) => {
+    const { id } = idParam.parse(req.params);
+    const { row, t } = await loadWithPayment(req, id);
+    res.json({ booking: withPayment(row, t) });
+  });
+
+  /**
+   * Start paying: re-validates the hold, then opens (or reuses) a PayMongo
+   * checkout session for GCash / Maya and returns its URL. The client
+   * redirects the player there. Only the booking's player, with the player
+   * role, can pay; the booking is confirmed only by PayMongo's webhook.
+   */
   r.post('/:id/checkout', async (req, res) => {
     const { id } = idParam.parse(req.params);
     const row = await asUser(deps, req, (tx) => loadBooking(tx, id));
     if (!row.is_mine) throw new ApiError(403, 'FORBIDDEN', 'Only the player who made this booking can pay for it.');
+    if (req.user!.role !== 'player') throw new ApiError(403, 'FORBIDDEN', 'Only players can pay for bookings.');
     if (row.status === 'cancelled') {
       throw new ApiError(409, 'BOOKING_CANCELLED', 'This booking was cancelled. Please choose another slot.');
     }
@@ -224,11 +247,40 @@ export function bookingRoutes(deps: Deps) {
       throw new ApiError(409, 'HOLD_EXPIRED',
         'Your hold on this slot expired and it was released. Please choose a slot again.');
     }
+    if (row.status === 'confirmed') {
+      res.json({
+        state: 'confirmed',
+        booking: s.booking(row),
+        payment: { provider: 'paymongo', amount: Number(row.total_amount), currency: row.currency },
+      });
+      return;
+    }
+    const session = await startCheckout(deps, req, id);
     res.json({
-      state: row.status === 'confirmed' ? 'confirmed' : 'awaiting_payment',
+      state: 'awaiting_payment',
       booking: s.booking(row),
-      payment: { provider: 'paymongo', amount: Number(row.total_amount), currency: row.currency },
+      payment: {
+        provider: 'paymongo',
+        amount: Number(row.total_amount),
+        currency: row.currency,
+        methods: deps.config.paymongo!.methods,
+        checkoutUrl: session.checkoutUrl,
+        checkoutSessionId: session.checkoutSessionId,
+        expiresAt: row.expires_at.toISOString(),
+      },
     });
+  });
+
+  /**
+   * After returning from PayMongo: ask PayMongo for the session's result now,
+   * in case the webhook is delayed. Returns the booking with its payment.
+   */
+  r.post('/:id/payment/verify', async (req, res) => {
+    const { id } = idParam.parse(req.params);
+    await asUser(deps, req, (tx) => loadBooking(tx, id)); // 404 unless the caller can see it
+    await syncFromPayMongo(deps, req, id);
+    const { row, t } = await loadWithPayment(req, id);
+    res.json({ booking: withPayment(row, t) });
   });
 
   r.post('/:id/cancel', async (req, res) => {

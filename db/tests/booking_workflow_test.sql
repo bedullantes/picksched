@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Tests for migration 004: booking workflow (pending_payment, expires_at,
--- 3 minute checkout hold, owners can't change bookings during checkout).
+-- checkout hold (15 minutes since migration 005), owners can't change bookings during checkout).
 --   psql -v ON_ERROR_STOP=1 -d <db> -f db/tests/booking_workflow_test.sql
 -- Runs inside a transaction that is rolled back at the end.
 -- =============================================================================
@@ -76,7 +76,7 @@ SET LOCAL ROLE picksched_app;
 
 SELECT pg_temp.expect_value($$SELECT string_agg(e::text, ',' ORDER BY e) FROM unnest(enum_range(NULL::booking_status)) e$$,
     'pending_payment,confirmed,cancelled', 'booking statuses are pending_payment, confirmed, cancelled');
-SELECT pg_temp.expect_value($$SELECT booking_hold_interval()::text$$, '00:03:00', 'checkout hold is 3 minutes');
+SELECT pg_temp.expect_value($$SELECT booking_hold_interval()::text$$, '00:15:00', 'checkout hold is 15 minutes');
 
 -- Reservation -------------------------------------------------------------------
 SELECT pg_temp.act_as('00000000-0000-0000-0000-00000000000b');
@@ -85,9 +85,9 @@ INSERT INTO bookings (id, court_id, player_id, start_time, end_time) VALUES
      '00000000-0000-0000-0000-00000000000b', pg_temp.at(9), pg_temp.at(10));
 SELECT pg_temp.expect_value($$SELECT status::text FROM bookings WHERE id = '00000000-0000-0000-0000-0000000000b1'$$,
     'pending_payment', 'new booking starts as pending_payment');
-SELECT pg_temp.expect_value($$SELECT (expires_at = now() + interval '3 minutes')::text
+SELECT pg_temp.expect_value($$SELECT (expires_at = now() + interval '15 minutes')::text
     FROM bookings WHERE id = '00000000-0000-0000-0000-0000000000b1'$$,
-    'true', 'expires_at is set to 3 minutes from now');
+    'true', 'expires_at is set to 15 minutes from now');
 SELECT pg_temp.expect_error($$INSERT INTO bookings (court_id, player_id, start_time, end_time)
     VALUES ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000000b',
             pg_temp.at(9), pg_temp.at(10))$$,

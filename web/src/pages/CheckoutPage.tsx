@@ -1,38 +1,29 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError, errorMessage } from '../api/client';
-import type { Booking } from '../api/types';
+import type { Booking, CheckoutResult } from '../api/types';
 import { AppHeader } from '../components/AppHeader';
 import { DEFAULT_TIMEZONE, formatDate, formatMoney, formatTimeRange, todayIn } from '../lib/format';
+import { METHOD_LABELS, redirectTo } from '../lib/navigation';
+import { mmss, useCountdown } from '../lib/useCountdown';
 import { useOnline } from '../lib/useOnline';
 
-interface CheckoutResult {
-  state: 'awaiting_payment' | 'confirmed';
-  booking: Booking;
-  payment: { provider: string; amount: number; currency: string };
-}
-
-function useCountdown(until: string | null) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!until) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [until]);
-  if (!until) return null;
-  return Math.max(0, Math.floor((new Date(until).getTime() - now) / 1000));
-}
-
-/** Payment / confirmation step for a held booking. */
+/**
+ * Payment step for a held booking. "Pay" asks the API to re-validate the hold
+ * and open a PayMongo checkout session, then sends the player to PayMongo's
+ * hosted page to pay with GCash or Maya. PayMongo returns them to
+ * /bookings/:id/payment.
+ */
 export function CheckoutPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const online = useOnline();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [checkout, setCheckout] = useState<CheckoutResult | null>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
+  /** 'processing' while waiting for the API; 'redirecting' once we're leaving for PayMongo. */
+  const [phase, setPhase] = useState<'idle' | 'processing' | 'redirecting'>('idle');
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -49,17 +40,22 @@ export function CheckoutPage() {
   const secondsLeft = useCountdown(booking?.status === 'pending_payment' ? booking.expiresAt : null);
   const expired = booking?.status === 'pending_payment' && (booking.holdExpired || secondsLeft === 0);
 
-  // Final availability check, done on the server, when the player commits to paying.
-  const proceed = async () => {
-    setBusy(true);
+  const pay = async () => {
+    setPhase('processing');
     setActionError(null);
     try {
-      setCheckout(await api<CheckoutResult>(`/api/bookings/${id}/checkout`, { method: 'POST' }));
+      const res = await api<CheckoutResult>(`/api/bookings/${id}/checkout`, { method: 'POST', timeoutMs: 30_000 });
+      if (res.state === 'confirmed' || !res.payment.checkoutUrl) {
+        setPhase('idle');
+        void load();
+        return;
+      }
+      setPhase('redirecting');
+      redirectTo(res.payment.checkoutUrl);
     } catch (err) {
+      setPhase('idle');
       setActionError(err instanceof ApiError ? err : new ApiError(0, 'UNKNOWN', errorMessage(err)));
       if (err instanceof ApiError && err.status === 409) void load();
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -111,7 +107,7 @@ export function CheckoutPage() {
             )}
             {booking.status === 'pending_payment' && !expired && secondsLeft !== null && (
               <p className="hold-timer" role="timer" aria-live="off">
-                Slot held for you for <strong>{Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}</strong>
+                Slot held for you for <strong>{mmss(secondsLeft)}</strong>
               </p>
             )}
             {expired && (
@@ -120,20 +116,45 @@ export function CheckoutPage() {
               </p>
             )}
 
-            {checkout?.state === 'awaiting_payment' ? (
-              <div className="notice notice--success" role="status">
-                <strong>Your slot is still reserved.</strong> Online payment with PayMongo will be added in the
-                payments module. Until then, the court owner can mark the booking as paid.
-              </div>
-            ) : booking.status === 'pending_payment' && !expired && (
-              <div className="checkout-actions">
-                <button type="button" className="button-secondary" onClick={cancel} disabled={busy || !online}>
-                  Cancel booking
-                </button>
-                <button type="button" className="button-primary" onClick={proceed} disabled={busy || !online}>
-                  {busy ? 'Checking availability…' : `Proceed to payment · ${formatMoney(booking.totalAmount, booking.currency)}`}
-                </button>
-              </div>
+            {booking.status === 'pending_payment' && !expired && booking.payment?.status === 'failed' && phase === 'idle' && (
+              <p className="notice notice--error" role="alert">
+                Your last payment attempt didn't go through
+                {booking.payment.failureMessage ? `: ${booking.payment.failureMessage}` : '.'} You can try again.
+              </p>
+            )}
+
+            {booking.status === 'pending_payment' && !expired && (
+              phase !== 'idle' ? (
+                <div className="processing" role="status" aria-live="polite">
+                  <span className="spinner" aria-hidden="true" />
+                  <div>
+                    <strong>Processing payment…</strong>
+                    <p>{phase === 'redirecting'
+                      ? 'Taking you to PayMongo to pay securely.'
+                      : 'Connecting to PayMongo. This takes a few seconds.'}</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="pay-methods" aria-label="Payment methods">
+                    <span>Pay with</span>
+                    <span className="method-badge method-badge--gcash">GCash</span>
+                    <span className="method-badge method-badge--paymaya">Maya</span>
+                  </div>
+                  <div className="checkout-actions">
+                    <button type="button" className="button-secondary" onClick={cancel} disabled={busy || !online}>
+                      Cancel booking
+                    </button>
+                    <button type="button" className="button-primary" onClick={pay} disabled={busy || !online}>
+                      Pay {formatMoney(booking.totalAmount, booking.currency)}
+                    </button>
+                  </div>
+                  <p className="hint">
+                    You'll be taken to PayMongo's secure checkout to pay with {Object.values(METHOD_LABELS).join(' or ')}.
+                    Your booking is confirmed as soon as PayMongo confirms the payment.
+                  </p>
+                </>
+              )
             )}
             {!online && <p className="notice notice--warning" role="status">You're offline. Reconnect to continue.</p>}
             {/* An expired or cancelled booking already has its own notice above. */}

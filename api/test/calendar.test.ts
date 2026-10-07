@@ -92,7 +92,7 @@ describe('availability', () => {
     expect(body.slots[0].startTime).toBe(at(tomorrow, 6));
     expect(body.slots[15].endTime).toBe(at(tomorrow, 22));
     expect(new Set(body.slots.map((s: any) => s.status))).toEqual(new Set(['available']));
-    expect(body.rules).toEqual({ minLeadMinutes: 60, holdMinutes: 3 });
+    expect(body.rules).toEqual({ minLeadMinutes: 60, holdMinutes: 15 });
     expect(body.courts[0]).toMatchObject({ name: 'Center Court', hourlyRate: 50000, opensAt: '06:00' });
   });
 

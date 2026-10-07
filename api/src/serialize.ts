@@ -38,6 +38,26 @@ export function booking(r: Row) {
     /** @deprecated same as expiresAt; kept for existing clients */
     holdExpiresAt: iso(r.expires_at),
     createdAt: iso(r.created_at),
+    paymentStatus: r.payment_status,
+    paymentIntentId: r.payment_intent_id ?? null,
+  };
+}
+
+/** Payment details for a booking; fee breakdown only for the court owner. */
+export function payment(t: Row, forPlayer: boolean) {
+  return {
+    status: t.status,
+    method: t.payment_method,
+    amount: Number(t.amount),
+    failureCode: t.failure_code,
+    failureMessage: t.failure_message,
+    processedAt: iso(t.processed_at),
+    refunded: !!t.refund_id || t.status === 'refunded',
+    ...(forPlayer ? {} : {
+      providerFee: t.provider_fee == null ? null : Number(t.provider_fee),
+      platformFee: t.platform_fee == null ? null : Number(t.platform_fee),
+      ownerNet: t.owner_net == null ? null : Number(t.owner_net),
+    }),
   };
 }
 

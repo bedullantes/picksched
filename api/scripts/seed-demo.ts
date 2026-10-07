@@ -38,8 +38,8 @@ const tomorrow = (await db.query(`SELECT ((now() AT TIME ZONE 'Asia/Manila')::da
 const at = (h: number) => `${tomorrow} ${String(h).padStart(2, '0')}:00+08`;
 const seedBooking = async (court: string, who: string, h: number, len: number, status: 'pending' | 'confirmed') => {
   await db.query(
-    `INSERT INTO bookings (court_id, player_id, start_time, end_time, status)
-     SELECT $1, $2, $3::timestamptz, $4::timestamptz, $5
+    `INSERT INTO bookings (court_id, player_id, start_time, end_time, status, payment_status)
+     SELECT $1, $2, $3::timestamptz, $4::timestamptz, $5, CASE WHEN $5 = 'confirmed' THEN 'paid' ELSE 'unpaid' END::booking_payment_status
      WHERE NOT EXISTS (SELECT 1 FROM bookings WHERE court_id = $1 AND start_time = $3::timestamptz AND status <> 'cancelled')`,
     [court, who, at(h), at(h + len), status]).catch(() => undefined);
 };

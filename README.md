@@ -10,6 +10,7 @@ A SaaS pickleball court booking system for independent court owners.
 - `web/`: React + Vite + TypeScript frontend (booking calendar, checkout)
 - `docs/database-schema.md`: data model, relationships, and constraint reference
 - `docs/booking-calendar.md`: calendar module behavior, API reference and error handling
+- `docs/payments.md`: PayMongo (GCash / Maya) payments, webhooks, commission and notifications
 
 ## Running locally
 
@@ -33,6 +34,8 @@ npm run dev:api
 npm run dev:web
 ```
 
+To try payments without PayMongo keys, run the local PayMongo simulator (`npm run dev:paymongo -w api`) and start the API with `PAYMONGO_SECRET_KEY=sk_test_local PAYMONGO_WEBHOOK_SECRET=whsk_local PAYMONGO_API_BASE=http://localhost:4010/v1 APP_BASE_URL=http://localhost:5173`. See [docs/payments.md](docs/payments.md).
+
 For production, run `npm run build`, then start the API with `WEB_DIST=web/dist node api/dist/server.js`. It serves the web app from the same origin.
 
 ### Environment variables (API)
@@ -48,6 +51,14 @@ For production, run `npm run build`, then start the API with `WEB_DIST=web/dist 
 | `MAX_BOOKING_HOURS` | `4` | Longest single booking |
 | `HOLD_SWEEP_INTERVAL_MS` | `15000` | How often unpaid holds past `expires_at` are cancelled |
 | `WEB_DIST` | (none) | Path to the built web app to serve |
+| `PAYMONGO_SECRET_KEY` | (none) | PayMongo secret key (`sk_test_…` / `sk_live_…`). Payments are disabled without it |
+| `PAYMONGO_WEBHOOK_SECRET` | (required with a key) | Signing secret of the PayMongo webhook (`whsk_…`) |
+| `APP_BASE_URL` | (required with a key) | Public URL of the web app; PayMongo returns players here |
+| `PAYMONGO_PAYMENT_METHODS` | `gcash,paymaya` | Methods offered at checkout |
+| `PAYMONGO_API_BASE` | `https://api.paymongo.com/v1` | Override for the local simulator |
+| `PAYMONGO_TIMEOUT_MS` | `10000` | PayMongo API timeout |
+| `PAYMENT_JOB_INTERVAL_MS` | `60000` | How often expired checkouts are closed and due refunds retried |
+| `NOTIFICATIONS_TRANSPORT` | `log` | `log`, or `webhook` to POST each notification to `NOTIFICATIONS_WEBHOOK_URL` |
 
 ## Tests
 
@@ -58,4 +69,4 @@ npm test -w web                                        # component tests
 npm run typecheck
 ```
 
-Unpaid reservations (`pending_payment`) hold their slot for 3 minutes. The API cancels expired ones automatically every 15 seconds; expired holds are also released immediately when someone books over them.
+Unpaid reservations (`pending_payment`) hold their slot for 15 minutes. The API cancels expired ones automatically every 15 seconds; expired holds are also released immediately when someone books over them.

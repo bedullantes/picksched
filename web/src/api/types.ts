@@ -67,6 +67,35 @@ export interface Booking {
   createdAt: string;
   isMine?: boolean;
   holdExpired?: boolean;
+  paymentStatus?: PaymentStatus;
+  payment?: BookingPayment | null;
+}
+
+export type PaymentStatus = 'unpaid' | 'processing' | 'paid' | 'failed' | 'expired' | 'refunded';
+export type PaymentMethod = 'gcash' | 'paymaya';
+
+export interface BookingPayment {
+  status: 'pending' | 'processing' | 'paid' | 'failed' | 'refunded';
+  method: PaymentMethod | null;
+  amount: number;
+  failureCode: string | null;
+  failureMessage: string | null;
+  processedAt: string | null;
+  refunded: boolean;
+}
+
+/** Response of POST /api/bookings/:id/checkout. */
+export interface CheckoutResult {
+  state: 'awaiting_payment' | 'confirmed';
+  booking: Booking;
+  payment: {
+    provider: 'paymongo';
+    amount: number;
+    currency: string;
+    methods?: PaymentMethod[];
+    checkoutUrl?: string;
+    expiresAt?: string;
+  };
 }
 
 /** Response of POST /api/bookings: the hold plus what the payment step needs. */

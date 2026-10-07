@@ -10,10 +10,14 @@ import { bookingRoutes } from './routes/bookings.js';
 import { courtRoutes } from './routes/courts.js';
 import { eventRoutes } from './routes/events.js';
 import { maintenanceRoutes } from './routes/maintenance.js';
+import { notificationRoutes } from './routes/notifications.js';
+import { webhookRoutes } from './routes/webhooks.js';
 
 export function createApp(deps: Deps) {
   const app = express();
   app.disable('x-powered-by');
+  // Webhooks verify signatures over the raw body, so they're mounted before the JSON parser.
+  app.use('/api/webhooks', webhookRoutes(deps));
   app.use(express.json({ limit: '20kb' }));
   app.use(sessionMiddleware(deps.config.sessionSecret));
 
@@ -27,6 +31,7 @@ export function createApp(deps: Deps) {
   app.use('/api/bookings', bookingRoutes(deps));
   app.use('/api/maintenance-blocks', maintenanceRoutes(deps));
   app.use('/api/events', eventRoutes(deps));
+  app.use('/api/notifications', notificationRoutes(deps));
   app.use('/api', (_req, _res, next) => next(new ApiError(404, 'NOT_FOUND', 'Not found.')));
 
   // In production, serve the built web app from the same origin.

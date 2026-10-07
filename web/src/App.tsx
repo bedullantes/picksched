@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext';
 import { BookingsDashboard } from './pages/BookingsDashboard';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { LoginPage } from './pages/LoginPage';
+import { PaymentResultPage } from './pages/PaymentResultPage';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, checking, checkError, retryCheck } = useAuth();
@@ -29,6 +30,7 @@ export function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/bookings" element={<RequireAuth><BookingsDashboard /></RequireAuth>} />
       <Route path="/bookings/:id/checkout" element={<RequireAuth><CheckoutPage /></RequireAuth>} />
+      <Route path="/bookings/:id/payment" element={<RequireAuth><PaymentResultPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/bookings" replace />} />
     </Routes>
   );
