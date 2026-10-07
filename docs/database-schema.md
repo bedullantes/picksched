@@ -4,6 +4,7 @@ PostgreSQL 14+. The source of truth is the migrations, applied in order:
 
 1. [`001_initial_schema.sql`](../db/migrations/001_initial_schema.sql): tables, relationships, integrity constraints and the no-overlap rule
 2. [`002_booking_holds_and_access_control.sql`](../db/migrations/002_booking_holds_and_access_control.sql): booking hold expiry, prices computed by the database, booking status rules, the PayMongo result function and role-based access control
+3. [`003_calendar_and_maintenance.sql`](../db/migrations/003_calendar_and_maintenance.sql): court opening hours, maintenance blocks, the 1-hour advance-booking rule, owner rescheduling, calendar availability and live change notifications
 
 ## Entity relationships
 
@@ -14,6 +15,8 @@ users (admin) 1 ──< courts 1 ──< bookings >── 1 users (player)
                                      │
                                      1
                                transactions
+
+courts 1 ──< court_blocks   (maintenance)
 ```
 
 | Relationship | Type | Enforced by |
@@ -22,6 +25,7 @@ users (admin) 1 ──< courts 1 ──< bookings >── 1 users (player)
 | Bookings → Court | Many-to-one | `bookings.court_id` FK |
 | Bookings → Player | Many-to-one | `bookings.player_id` FK |
 | Booking → Transaction | One-to-one | `transactions.booking_id` FK + `UNIQUE` |
+| Court → Maintenance blocks | One-to-many | `court_blocks.court_id` FK (`ON DELETE CASCADE`) |
 
 All foreign keys use `ON DELETE RESTRICT`: a court with bookings, or a booking with a payment, can't be deleted. This keeps the financial history intact. Use `courts.is_active = false` to take a court off the market.
 
@@ -48,6 +52,9 @@ All foreign keys use `ON DELETE RESTRICT`: a court with bookings, or a booking w
 | hourly_rate | BIGINT | Centavos, ≥ 0 |
 | currency | CHAR(3) | Default `PHP` |
 | is_active | BOOLEAN | Availability status; default `true` |
+| timezone | TEXT | IANA time zone for the court's local schedule; default `Asia/Manila`; validated |
+| opens_at / closes_at | TIME | Daily opening hours in `timezone`; default 06:00–22:00 |
+| slot_minutes | INTEGER | Calendar slot length: 30, 60, 90 or 120; default 60 |
 
 ### `bookings`
 | Column | Type | Notes |
@@ -61,6 +68,17 @@ All foreign keys use `ON DELETE RESTRICT`: a court with bookings, or a booking w
 | currency | CHAR(3) | Copied from the court |
 | cancelled_at | TIMESTAMPTZ | Set if and only if `status = 'cancelled'` |
 | hold_expires_at | TIMESTAMPTZ | When an unpaid `pending` booking releases its slot (insert time + 15 min). Required while `pending` |
+
+### `court_blocks` (maintenance)
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| court_id | UUID FK → courts | |
+| created_by | UUID FK → users | Set to the signed-in user automatically |
+| start_time / end_time | TIMESTAMPTZ | `end_time > start_time`; blocks on the same court can't overlap |
+| reason | TEXT | Optional. Shown only to the court owner |
+
+A block can't overlap an active (pending or confirmed) booking, and a booking can't overlap a block. Expired holds in the way are released first. Both sides take a per-court lock (`lock_court_schedule`), so a booking and a block created at the same moment can't both succeed. Only the court owner can read or change blocks; everyone else sees blocked slots as `maintenance` in `get_availability`.
 
 ### `transactions`
 | Column | Type | Notes |
@@ -103,6 +121,32 @@ pending ──> confirmed ──> cancelled
 
 `cancelled` is final, and `confirmed` can't go back to `pending`. A trigger enforces this; a disallowed change fails with SQLSTATE `23514` (respond with HTTP 409).
 
+### Advance booking rule (migration 003)
+
+Players must book at least `booking_min_lead_time()` (1 hour) ahead. The row-level security insert policy enforces this, so a booking that is too soon or in the past is rejected with `42501`. The API checks first and returns a clearer `422 TOO_SOON` / `422 SLOT_IN_PAST`.
+
+### Calendar availability (migration 003)
+
+`get_availability(start_date, days, court_id, owned_only)` returns one row per slot for each court the caller can see. Slots are generated from each court's `opens_at`/`closes_at`/`slot_minutes`, in the court's time zone.
+
+| status | Meaning |
+|---|---|
+| `available` | Open and bookable |
+| `booked` | Held or confirmed by someone else |
+| `mine` | Held or confirmed by the caller |
+| `maintenance` | Covered by a maintenance block |
+| `unavailable` | In the past, or inside the 1-hour advance window |
+
+Expired pending holds count as open. Booking details (id, status, times, hold expiry) are returned only to the booking's player and the court owner, and the player's email and the block reason only to the owner. Other players see the status and nothing else.
+
+### Owner rescheduling (migration 003)
+
+`reschedule_booking(booking_id, court_id, start, end)` moves an active booking to a new time and/or another court of the same owner. The price stays what was originally charged. Overlaps fail with `23P01`, and moving into the past fails with `23514`.
+
+### Live change notifications (migration 003)
+
+Every insert, update or delete on `bookings` or `court_blocks` runs `pg_notify('picksched_schedule', '{"court_id","start_time","end_time"}')`. The payload contains no personal data. The API listens on this channel and pushes changes to browsers (see [booking-calendar.md](booking-calendar.md)).
+
 ## PayMongo integration notes
 
 - Amounts are integers in centavos, which is what PayMongo's REST API sends and receives. No conversion is needed.
@@ -137,6 +181,7 @@ Permissions are enforced **in the database** with row-level security (RLS), so a
 | **users** | Read own row, plus players who booked their courts. Update own email/password | Read own row. Update own email/password |
 | **courts** | Read active courts plus all their own. Full CRUD on their own courts | Read active courts |
 | **bookings** | Read bookings on their courts. Cancel them (`cancel_booking`), confirm them manually (`confirm_booking`, e.g. paid in cash) | Read own bookings. Create bookings for themselves on active courts. Cancel own (`cancel_booking`) |
+| **court_blocks** (maintenance) | Full CRUD on blocks for their own courts | No direct access; sees `maintenance` slots |
 | **transactions** (financial / occupancy reports) | Read transactions for their courts | Read own transactions. Start payment for own pending booking and store the PayMongo id |
 
 ### Fields the app can't write
@@ -149,6 +194,8 @@ Permissions are enforced **in the database** with row-level security (RLS), so a
 | `find_user_for_login(email)` | Anyone (login) | Return `id, password_hash, role`; the API verifies the password |
 | `cancel_booking(id)` | Booking's player or court owner | Cancel; repeated calls have no further effect |
 | `confirm_booking(id)` | Court owner | Manual confirmation |
+| `reschedule_booking(id, court, start, end)` | Court owner | Move a booking to another time or court |
+| `get_availability(date, days, court, owned_only)` | Anyone | Calendar slots with status |
 | `record_payment_result(ref, status)` | Webhook handler | Apply a PayMongo result |
 | `expire_stale_bookings()` | Scheduler | Release expired holds |
 
@@ -165,9 +212,9 @@ How to map errors to HTTP responses:
 ## Running the migrations and tests
 
 ```sh
-# Apply migrations in order
-for f in db/migrations/*.sql; do psql -v ON_ERROR_STOP=1 -d picksched -f "$f"; done
+# Apply pending migrations in order (records them in schema_migrations)
+DATABASE_URL=postgres://... npm run migrate -w api
 
-# Run every test on a scratch database (uses PGHOST/PGPORT/PGUSER; needs CREATEDB and CREATEROLE)
+# Run every SQL test on a scratch database (uses PGHOST/PGPORT/PGUSER; needs CREATEDB and CREATEROLE)
 sh db/run_tests.sh
 ```
