@@ -17,6 +17,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     bcryptRounds: 4,
     dbStatementTimeoutMs: 5000,
     maxBookingHours: 4,
+    holdSweepIntervalMs: 60_000,
     ...overrides,
   };
 }
@@ -33,7 +34,7 @@ export async function startTestApp(overrides: Partial<Config> = {}) {
   // Superuser connection for fixtures and for simulating the passage of time.
   const admin = new pg.Pool({ connectionString: config.databaseUrl, max: 2 });
   return {
-    app, db, events, admin, baseUrl,
+    app, db, events, admin, baseUrl, config,
     async close() {
       server.closeAllConnections();
       await new Promise((r) => server.close(r));

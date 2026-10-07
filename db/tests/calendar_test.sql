@@ -166,7 +166,7 @@ SELECT pg_temp.expect_value($$SELECT pg_temp.slot(12)$$, 'available', 'deleting 
 
 -- Expired holds give way to maintenance
 RESET ROLE;
-UPDATE bookings SET hold_expires_at = now() - interval '1 second'
+UPDATE bookings SET expires_at = now() - interval '1 second'
 WHERE id = '00000000-0000-0000-0000-0000000000b1';
 SET LOCAL ROLE picksched_app;
 SELECT pg_temp.expect_value($$SELECT pg_temp.slot(9)$$, 'available', 'expired hold shows as available');
@@ -187,6 +187,12 @@ SELECT pg_temp.expect_error($$SELECT reschedule_booking('00000000-0000-0000-0000
     '42501', 'player cannot reschedule');
 
 SELECT pg_temp.act_as('00000000-0000-0000-0000-00000000000a');
+SELECT pg_temp.expect_error($$SELECT reschedule_booking('00000000-0000-0000-0000-0000000000e1',
+    '00000000-0000-0000-0000-0000000000c1', pg_temp.at(16), pg_temp.at(17))$$,
+    '55006', 'owner cannot reschedule a booking that is in checkout');
+RESET ROLE;  -- simulate the payment completing
+UPDATE bookings SET status = 'confirmed' WHERE id = '00000000-0000-0000-0000-0000000000e1';
+SET LOCAL ROLE picksched_app;
 SELECT pg_temp.expect_value($$SELECT ((reschedule_booking('00000000-0000-0000-0000-0000000000e1',
     '00000000-0000-0000-0000-0000000000c1', pg_temp.at(16), pg_temp.at(17))).start_time = pg_temp.at(16))::text$$,
     'true', 'owner reschedules a booking');

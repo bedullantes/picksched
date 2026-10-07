@@ -22,7 +22,7 @@ export interface Court {
 }
 
 export type SlotStatus = 'available' | 'booked' | 'mine' | 'maintenance' | 'unavailable';
-export type BookingStatus = 'pending' | 'confirmed' | 'cancelled';
+export type BookingStatus = 'pending_payment' | 'confirmed' | 'cancelled';
 
 export interface Slot {
   courtId: string;
@@ -35,7 +35,8 @@ export interface Slot {
     status: BookingStatus;
     startTime: string;
     endTime: string;
-    holdExpiresAt: string | null;
+    /** When an unpaid booking releases the slot. */
+    expiresAt: string | null;
     playerEmail?: string;
   };
   block?: { id: string; reason: string | null };
@@ -61,10 +62,20 @@ export interface Booking {
   status: BookingStatus;
   totalAmount: number;
   currency: string;
-  holdExpiresAt: string | null;
+  /** When an unpaid booking releases the slot. */
+  expiresAt: string | null;
   createdAt: string;
   isMine?: boolean;
   holdExpired?: boolean;
+}
+
+/** Response of POST /api/bookings: the hold plus what the payment step needs. */
+export interface Reservation {
+  booking: Booking;
+  payment: { provider: 'paymongo'; amount: number; currency: string; expiresAt: string };
+  next: 'payment';
+  /** True when this was a retry of a request that had already succeeded. */
+  replayed: boolean;
 }
 
 export interface MaintenanceBlock {

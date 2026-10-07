@@ -23,6 +23,10 @@ export function BookingDetailsModal(p: BookingDetailsModalProps) {
   const isOwner = p.role === 'admin';
   const tz = p.court.timezone;
   const durationMs = new Date(booking.endTime).getTime() - new Date(booking.startTime).getTime();
+  // While the player is paying, owners can look but not change anything (the API refuses too).
+  const inCheckout = booking.status === 'pending_payment'
+    && !!booking.expiresAt && new Date(booking.expiresAt).getTime() > Date.now();
+  const ownerLocked = isOwner && inCheckout;
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +66,6 @@ export function BookingDetailsModal(p: BookingDetailsModalProps) {
   };
 
   const cancel = () => run(() => api(`/api/bookings/${booking.id}/cancel`, { method: 'POST' }));
-  const confirm = () => run(() => api(`/api/bookings/${booking.id}/confirm`, { method: 'POST' }));
   const move = () => run(() => api(`/api/bookings/${booking.id}`, {
     method: 'PATCH',
     body: {
@@ -90,22 +93,22 @@ export function BookingDetailsModal(p: BookingDetailsModalProps) {
                 {busy ? 'Cancelling…' : 'Yes, cancel'}
               </button>
             </>
+          ) : ownerLocked ? (
+            <button type="button" className="button-secondary" onClick={p.onClose}>Close</button>
           ) : (
             <>
               <button type="button" className="button-danger-outline" onClick={() => setConfirmCancel(true)} disabled={disabled}>
-                Cancel booking
+                {!isOwner && booking.status === 'pending_payment' ? 'Release slot' : 'Cancel booking'}
               </button>
-              {isOwner && booking.status === 'pending' && (
-                <button type="button" className="button-secondary" onClick={confirm} disabled={disabled}>
-                  Mark as paid
-                </button>
+              {isOwner && booking.status === 'pending_payment' && (
+                <span className="footer-question">Payment window expired</span>
               )}
-              {isOwner && !moving && (
+              {isOwner && booking.status === 'confirmed' && !moving && (
                 <button type="button" className="button-secondary" onClick={() => setMoving(true)} disabled={disabled}>
                   Reschedule
                 </button>
               )}
-              {!isOwner && booking.status === 'pending' && (
+              {!isOwner && booking.status === 'pending_payment' && (
                 <button type="button" className="button-primary" onClick={() => p.onContinueToPayment(booking.id)}>
                   Continue to payment
                 </button>
@@ -124,14 +127,21 @@ export function BookingDetailsModal(p: BookingDetailsModalProps) {
           <dt>Status</dt>
           <dd>
             <span className={`badge badge--${booking.status}`}>
-              {booking.status === 'pending' ? 'Awaiting payment' : booking.status === 'confirmed' ? 'Confirmed' : 'Cancelled'}
+              {booking.status === 'pending_payment' ? 'Awaiting payment' : booking.status === 'confirmed' ? 'Confirmed' : 'Cancelled'}
             </span>
-            {booking.status === 'pending' && booking.holdExpiresAt && (
-              <span className="hint"> · hold until {formatTime(booking.holdExpiresAt, tz)}</span>
+            {booking.status === 'pending_payment' && booking.expiresAt && (
+              <span className="hint"> · held until {formatTime(booking.expiresAt, tz)}</span>
             )}
           </dd>
         </div>
       </dl>
+
+      {ownerLocked && (
+        <p className="notice notice--info" role="status">
+          The player is paying for this booking right now. You can change it once checkout finishes, or after the
+          hold expires at {formatTime(booking.expiresAt!, tz)}.
+        </p>
+      )}
 
       {isOwner && moving && (
         <fieldset className="reschedule">

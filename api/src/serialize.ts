@@ -34,7 +34,9 @@ export function booking(r: Row) {
     status: r.status,
     totalAmount: Number(r.total_amount),
     currency: r.currency,
-    holdExpiresAt: iso(r.hold_expires_at),
+    expiresAt: iso(r.expires_at),
+    /** @deprecated same as expiresAt; kept for existing clients */
+    holdExpiresAt: iso(r.expires_at),
     createdAt: iso(r.created_at),
   };
 }
@@ -63,6 +65,7 @@ export function slot(r: Row) {
           status: r.booking_status,
           startTime: iso(r.booking_start),
           endTime: iso(r.booking_end),
+          expiresAt: iso(r.hold_expires_at),
           holdExpiresAt: iso(r.hold_expires_at),
           playerEmail: r.player_email ?? undefined,
         }

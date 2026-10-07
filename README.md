@@ -46,6 +46,7 @@ For production, run `npm run build`, then start the API with `WEB_DIST=web/dist 
 | `DB_STATEMENT_TIMEOUT_MS` | `5000` | Per-request query timeout |
 | `BCRYPT_ROUNDS` | `12` | Password hashing cost |
 | `MAX_BOOKING_HOURS` | `4` | Longest single booking |
+| `HOLD_SWEEP_INTERVAL_MS` | `15000` | How often unpaid holds past `expires_at` are cancelled |
 | `WEB_DIST` | (none) | Path to the built web app to serve |
 
 ## Tests
@@ -57,4 +58,4 @@ npm test -w web                                        # component tests
 npm run typecheck
 ```
 
-Schedule `SELECT expire_stale_bookings();` (for example every minute) to release unpaid holds in bulk. Expired holds are also released automatically when someone books over them.
+Unpaid reservations (`pending_payment`) hold their slot for 3 minutes. The API cancels expired ones automatically every 15 seconds; expired holds are also released immediately when someone books over them.

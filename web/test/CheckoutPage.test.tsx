@@ -8,8 +8,8 @@ import { jsonResponse } from './fixtures';
 
 const booking = {
   id: 'b1', courtId: 'c1', courtName: 'Center Court', courtTimezone: 'Asia/Manila', playerId: 'p1',
-  startTime: '2099-01-01T02:00:00.000Z', endTime: '2099-01-01T03:00:00.000Z', status: 'pending',
-  totalAmount: 50000, currency: 'PHP', holdExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+  startTime: '2099-01-01T02:00:00.000Z', endTime: '2099-01-01T03:00:00.000Z', status: 'pending_payment',
+  totalAmount: 50000, currency: 'PHP', expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
   createdAt: new Date().toISOString(), isMine: true, holdExpired: false,
 };
 

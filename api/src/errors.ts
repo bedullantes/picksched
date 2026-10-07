@@ -36,6 +36,9 @@ export function fromDbError(err: unknown): ApiError | null {
         return new ApiError(409, 'ALREADY_BLOCKED', 'Part of that time is already blocked for maintenance.');
       }
       return new ApiError(409, 'SLOT_UNAVAILABLE', SLOT_TAKEN);
+    case '55006': // object_in_use: booking is in checkout (migration 004)
+      return new ApiError(409, 'BOOKING_IN_CHECKOUT',
+        'The player is paying for this booking right now. It can be changed once checkout finishes or the hold expires.');
     case '23505':
       return new ApiError(409, 'DUPLICATE', 'That record already exists.');
     case '23503':

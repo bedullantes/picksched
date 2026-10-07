@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { api, ApiError, errorMessage } from '../api/client';
-import type { Booking, Court, Slot } from '../api/types';
+import type { Booking, Court, Reservation, Slot } from '../api/types';
 import { durationLabel, formatDate, formatMoney, formatTimeRange } from '../lib/format';
 import { Modal } from '../components/Modal';
 import { consecutiveSlots, MAX_BOOKING_HOURS } from './slots';
@@ -18,7 +18,16 @@ interface BookingModalProps {
   onContinueExisting: (bookingId: string) => void;
 }
 
-/** Booking Confirmation: court and time come pre-filled from the clicked slot. */
+const RETRY_DELAY_MS = 1000;
+
+/**
+ * Booking Confirmation: court and time come pre-filled from the clicked slot.
+ *
+ * Reserving sends an Idempotency-Key that stays the same for this court, time
+ * and duration. If the request times out or the connection drops, it is retried
+ * once with the same key. The server then returns the reservation the first
+ * attempt made (if it got through) instead of reporting the slot as taken.
+ */
 export function BookingModal(p: BookingModalProps) {
   const { court, slot } = p;
   const maxSlots = Math.max(1, Math.floor((MAX_BOOKING_HOURS * 60) / court.slotMinutes));
@@ -31,6 +40,8 @@ export function BookingModal(p: BookingModalProps) {
   const end = chosen[chosen.length - 1]?.endTime ?? slot.endTime;
   const minutes = chosen.length * court.slotMinutes;
   const price = Math.round((court.hourlyRate * minutes) / 60);
+  // One key per distinct request; a new duration is a new request.
+  const requestKey = useMemo(() => crypto.randomUUID(), [slot.courtId, slot.startTime, chosen.length]);
 
   // The slot changed under us (live update): someone else took it, or this user did in another tab.
   const takenByOther = slot.status !== 'available' && slot.status !== 'mine';
@@ -39,14 +50,28 @@ export function BookingModal(p: BookingModalProps) {
   const submit = async () => {
     setSubmitting(true);
     setError(null);
+    const send = () => api<Reservation>('/api/bookings', {
+      method: 'POST',
+      body: { courtId: court.id, startTime: slot.startTime, endTime: end },
+      headers: { 'Idempotency-Key': requestKey },
+    });
     try {
-      const res = await api<{ booking: Booking }>('/api/bookings', {
-        method: 'POST',
-        body: { courtId: court.id, startTime: slot.startTime, endTime: end },
-      });
+      let res: Reservation;
+      try {
+        res = await send();
+      } catch (err) {
+        if (!(err instanceof ApiError && err.isConnectivity)) throw err;
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        res = await send();
+      }
       p.onBooked(res.booking);
     } catch (err) {
-      setError(errorMessage(err));
+      if (err instanceof ApiError && err.isConnectivity) {
+        setError("We couldn't confirm your reservation because the connection dropped. "
+          + "Please try again. You won't be double-booked.");
+      } else {
+        setError(errorMessage(err));
+      }
       if (err instanceof ApiError && (err.status === 409 || err.isConnectivity)) p.onConflict();
     } finally {
       setSubmitting(false);

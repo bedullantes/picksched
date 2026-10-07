@@ -31,7 +31,7 @@ export function playerDay(date: string): Slot[] {
     slot(date, 7, 'booked'),
     slot(date, 8, 'maintenance'),
     slot(date, 9, 'mine', {
-      booking: { id: 'b-mine', status: 'pending', startTime: at(date, 9), endTime: at(date, 10), holdExpiresAt: at(date, 9) },
+      booking: { id: 'b-mine', status: 'pending_payment', startTime: at(date, 9), endTime: at(date, 10), expiresAt: at(date, 9) },
     }),
     slot(date, 10, 'available'),
     slot(date, 11, 'available'),

@@ -13,7 +13,7 @@ const today = todayIn('Asia/Manila');
 
 type Handler = (url: URL, init: RequestInit) => Response | Promise<Response>;
 let routes: Record<string, Handler>;
-let calls: Array<{ method: string; url: URL; body: any }>;
+let calls: Array<{ method: string; url: URL; body: any; headers: Record<string, string> }>;
 
 beforeEach(() => {
   calls = [];
@@ -24,7 +24,10 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (input: URL | string, init: RequestInit = {}) => {
     const url = new URL(String(input), 'http://localhost');
     const method = init.method ?? 'GET';
-    calls.push({ method, url, body: init.body ? JSON.parse(String(init.body)) : undefined });
+    calls.push({
+      method, url, body: init.body ? JSON.parse(String(init.body)) : undefined,
+      headers: (init.headers ?? {}) as Record<string, string>,
+    });
     const handler = routes[`${method} ${url.pathname}`];
     if (!handler) return jsonResponse(404, { error: { code: 'NOT_FOUND', message: 'Not found.' } });
     return handler(url, init);
@@ -69,7 +72,7 @@ describe('player view', () => {
 
   it('opens a pre-filled confirmation and proceeds to checkout', async () => {
     routes['POST /api/bookings'] = () => jsonResponse(201, {
-      booking: { id: 'b-new', courtId: 'c1', status: 'pending', totalAmount: 50000, currency: 'PHP' },
+      booking: { id: 'b-new', courtId: 'c1', status: 'pending_payment', totalAmount: 50000, currency: 'PHP' },
     });
     const { onProceed } = renderCalendar();
     await userEvent.click(await screen.findByRole('button', { name: /10:00 AM.*Available/ }));
@@ -83,6 +86,38 @@ describe('player view', () => {
     const post = calls.find((c) => c.method === 'POST')!;
     expect(post.body).toEqual({ courtId: 'c1', startTime: at(today, 10), endTime: at(today, 11) });
     expect(onProceed).toHaveBeenCalledWith('b-new', expect.objectContaining({ id: 'b-new' }));
+  });
+
+  it('sends an idempotency key and retries once with it after a dropped connection', async () => {
+    let attempts = 0;
+    routes['POST /api/bookings'] = () => {
+      attempts += 1;
+      if (attempts === 1) return Promise.reject(new TypeError('Failed to fetch'));
+      return jsonResponse(200, { booking: { id: 'b-replayed' }, replayed: true });
+    };
+    const { onProceed } = renderCalendar();
+    await userEvent.click(await screen.findByRole('button', { name: /10:00 AM.*Available/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Reserve & continue/ }));
+
+    await waitFor(() => expect(onProceed).toHaveBeenCalledWith('b-replayed', expect.anything()));
+    const posts = calls.filter((c) => c.method === 'POST');
+    expect(posts).toHaveLength(2);
+    const key = posts[0].headers['Idempotency-Key'];
+    expect(key).toMatch(/^[0-9a-f-]{36}$/);
+    expect(posts[1].headers['Idempotency-Key']).toBe(key);
+  });
+
+  it('explains a dropped connection and reuses the same key when the player tries again', async () => {
+    routes['POST /api/bookings'] = () => Promise.reject(new TypeError('Failed to fetch'));
+    renderCalendar();
+    await userEvent.click(await screen.findByRole('button', { name: /10:00 AM.*Available/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Reserve & continue/ }));
+    expect(await screen.findByText(/connection dropped.*won't be double-booked/)).toBeInTheDocument();
+
+    routes['POST /api/bookings'] = () => jsonResponse(201, { booking: { id: 'b-ok' } });
+    await userEvent.click(screen.getByRole('button', { name: /Reserve & continue/ }));
+    const keys = new Set(calls.filter((c) => c.method === 'POST').map((c) => c.headers['Idempotency-Key']));
+    expect(keys.size).toBe(1);
   });
 
   it('offers longer durations over consecutive open slots', async () => {
@@ -219,7 +254,7 @@ describe('navigation', () => {
 describe('owner view', () => {
   const ownerDay = (d: string) => [
     slot(d, 9, 'booked', {
-      booking: { id: 'b1', status: 'confirmed', startTime: at(d, 9), endTime: at(d, 10), holdExpiresAt: null, playerEmail: 'pat@example.com' },
+      booking: { id: 'b1', status: 'confirmed', startTime: at(d, 9), endTime: at(d, 10), expiresAt: null, playerEmail: 'pat@example.com' },
     }),
     slot(d, 10, 'available'),
     slot(d, 11, 'maintenance', { block: { id: 'blk1', reason: 'Resurfacing' } }),
@@ -263,6 +298,23 @@ describe('owner view', () => {
     await userEvent.click(await screen.findByRole('button', { name: /10:00 AM.*Available/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Block time' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/overlaps existing bookings/);
+  });
+
+  it("can't change a booking while the player is checking out", async () => {
+    routes['GET /api/availability'] = (url) => {
+      const d = url.searchParams.get('start')!;
+      return jsonResponse(200, availability(d, [slot(d, 9, 'booked', {
+        booking: {
+          id: 'b-co', status: 'pending_payment', startTime: at(d, 9), endTime: at(d, 10),
+          expiresAt: new Date(Date.now() + 120_000).toISOString(), playerEmail: 'pat@example.com',
+        },
+      })], [{ ...court, isOwner: true }]));
+    };
+    renderCalendar(owner);
+    await userEvent.click(await screen.findByRole('button', { name: /Booked by pat@example.com, Checking out/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Booking details' });
+    expect(within(dialog).getByText(/paying for this booking right now/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /Cancel booking|Reschedule|Mark as paid/ })).not.toBeInTheDocument();
   });
 
   it('reschedules a booking', async () => {

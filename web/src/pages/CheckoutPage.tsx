@@ -46,8 +46,8 @@ export function CheckoutPage() {
     void load();
   }, [load]);
 
-  const secondsLeft = useCountdown(booking?.status === 'pending' ? booking.holdExpiresAt : null);
-  const expired = booking?.status === 'pending' && (booking.holdExpired || secondsLeft === 0);
+  const secondsLeft = useCountdown(booking?.status === 'pending_payment' ? booking.expiresAt : null);
+  const expired = booking?.status === 'pending_payment' && (booking.holdExpired || secondsLeft === 0);
 
   // Final availability check, done on the server, when the player commits to paying.
   const proceed = async () => {
@@ -109,7 +109,7 @@ export function CheckoutPage() {
             {booking.status === 'confirmed' && (
               <p className="notice notice--success" role="status">This booking is paid and confirmed. See you on the court!</p>
             )}
-            {booking.status === 'pending' && !expired && secondsLeft !== null && (
+            {booking.status === 'pending_payment' && !expired && secondsLeft !== null && (
               <p className="hold-timer" role="timer" aria-live="off">
                 Slot held for you for <strong>{Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}</strong>
               </p>
@@ -125,7 +125,7 @@ export function CheckoutPage() {
                 <strong>Your slot is still reserved.</strong> Online payment with PayMongo will be added in the
                 payments module. Until then, the court owner can mark the booking as paid.
               </div>
-            ) : booking.status === 'pending' && !expired && (
+            ) : booking.status === 'pending_payment' && !expired && (
               <div className="checkout-actions">
                 <button type="button" className="button-secondary" onClick={cancel} disabled={busy || !online}>
                   Cancel booking
@@ -136,7 +136,8 @@ export function CheckoutPage() {
               </div>
             )}
             {!online && <p className="notice notice--warning" role="status">You're offline. Reconnect to continue.</p>}
-            {actionError && (
+            {/* An expired or cancelled booking already has its own notice above. */}
+            {actionError && !expired && booking.status !== 'cancelled' && (
               <p className="notice notice--error" role="alert">
                 {actionError.message}
                 {actionError.status === 409 && <> <Link to="/bookings">Back to calendar</Link></>}

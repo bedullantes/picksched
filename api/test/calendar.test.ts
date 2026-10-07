@@ -92,7 +92,7 @@ describe('availability', () => {
     expect(body.slots[0].startTime).toBe(at(tomorrow, 6));
     expect(body.slots[15].endTime).toBe(at(tomorrow, 22));
     expect(new Set(body.slots.map((s: any) => s.status))).toEqual(new Set(['available']));
-    expect(body.rules).toEqual({ minLeadMinutes: 60, holdMinutes: 15 });
+    expect(body.rules).toEqual({ minLeadMinutes: 60, holdMinutes: 3 });
     expect(body.courts[0]).toMatchObject({ name: 'Center Court', hourlyRate: 50000, opensAt: '06:00' });
   });
 
@@ -127,7 +127,7 @@ describe('booking a slot', () => {
       .send({ courtId, startTime: at(tomorrow, 9), endTime: at(tomorrow, 10) });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.booking).toMatchObject({
-      courtId, courtName: 'Center Court', status: 'pending', totalAmount: 50000, currency: 'PHP',
+      courtId, courtName: 'Center Court', status: 'pending_payment', totalAmount: 50000, currency: 'PHP',
     });
     expect(res.body.booking.holdExpiresAt).toBeTruthy();
   });
@@ -135,7 +135,7 @@ describe('booking a slot', () => {
   it('shows the booking as mine to its player, booked to others, with details for the owner', async () => {
     const mine = slotAt((await availability(alice, { start: tomorrow, courtId })).slots, at(tomorrow, 9));
     expect(mine.status).toBe('mine');
-    expect(mine.booking.status).toBe('pending');
+    expect(mine.booking.status).toBe('pending_payment');
 
     const theirs = slotAt((await availability(bob, { start: tomorrow, courtId })).slots, at(tomorrow, 9));
     expect(theirs.status).toBe('booked');
@@ -168,7 +168,7 @@ describe('booking a slot', () => {
     soon.setUTCMinutes(0, 0, 0);
     const res = await alice.agent.post('/api/bookings')
       .send({ courtId, startTime: soon.toISOString(), endTime: new Date(soon.getTime() + 3_600_000).toISOString() });
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
     expect(['TOO_SOON', 'SLOT_IN_PAST']).toContain(res.body.error.code);
   });
 
@@ -176,14 +176,14 @@ describe('booking a slot', () => {
     const yesterday = await manilaDate(ctx.admin, -1);
     const res = await alice.agent.post('/api/bookings')
       .send({ courtId, startTime: at(yesterday, 9), endTime: at(yesterday, 10) });
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('SLOT_IN_PAST');
   });
 
   it('rejects times that do not match the court slots', async () => {
     const res = await alice.agent.post('/api/bookings')
       .send({ courtId, startTime: at(tomorrow, 14, 30), endTime: at(tomorrow, 15, 30) });
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('INVALID_SLOT');
   });
 
@@ -277,6 +277,19 @@ describe('owner booking management', () => {
     expect(res.status).toBe(403);
   });
 
+  it('owner cannot change a booking while the player is checking out', async () => {
+    for (const res of [
+      await owner.agent.patch(`/api/bookings/${bookingId}`).send({ startTime: at(tomorrow, 15), endTime: at(tomorrow, 16) }),
+      await owner.agent.post(`/api/bookings/${bookingId}/confirm`),
+      await owner.agent.post(`/api/bookings/${bookingId}/cancel`),
+    ]) {
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('BOOKING_IN_CHECKOUT');
+    }
+    // Simulate the payment completing, for the tests below.
+    await ctx.admin.query(`UPDATE bookings SET status = 'confirmed' WHERE id = $1`, [bookingId]);
+  });
+
   it('owner moves a booking to a new time', async () => {
     const res = await owner.agent.patch(`/api/bookings/${bookingId}`)
       .send({ startTime: at(tomorrow, 15), endTime: at(tomorrow, 16) });
@@ -290,7 +303,7 @@ describe('owner booking management', () => {
     expect(res.status).toBe(409);
   });
 
-  it('owner confirms and cancels bookings', async () => {
+  it('owner cancels a confirmed booking', async () => {
     const confirmed = await owner.agent.post(`/api/bookings/${bookingId}/confirm`);
     expect(confirmed.body.booking.status).toBe('confirmed');
     const cancelled = await owner.agent.post(`/api/bookings/${bookingId}/cancel`);
@@ -323,7 +336,7 @@ describe('checkout', () => {
   });
 
   it('reports an expired hold', async () => {
-    await ctx.admin.query(`UPDATE bookings SET hold_expires_at = now() - interval '1 second' WHERE id = $1`, [bookingId]);
+    await ctx.admin.query(`UPDATE bookings SET expires_at = now() - interval '1 second' WHERE id = $1`, [bookingId]);
     const res = await alice.agent.post(`/api/bookings/${bookingId}/checkout`);
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('HOLD_EXPIRED');

@@ -82,9 +82,9 @@ INSERT INTO bookings (id, court_id, player_id, start_time, end_time) VALUES
      '00000000-0000-0000-0000-00000000000b', '2099-11-01 09:00+08', '2099-11-01 10:30+08');
 SELECT pg_temp.expect_value($$SELECT total_amount::text FROM bookings WHERE id = '00000000-0000-0000-0000-0000000000b1'$$,
     '60000', 'total_amount computed from hourly rate (1.5h x 40000)');
-SELECT pg_temp.expect_value($$SELECT (hold_expires_at = now() + interval '15 minutes')::text
+SELECT pg_temp.expect_value($$SELECT (expires_at = now() + interval '3 minutes')::text
     FROM bookings WHERE id = '00000000-0000-0000-0000-0000000000b1'$$,
-    'true', 'pending booking gets a 15 minute hold');
+    'true', 'pending booking gets a 3 minute hold');
 SELECT pg_temp.expect_error($$INSERT INTO bookings (court_id, player_id, start_time, end_time, total_amount)
     VALUES ('00000000-0000-0000-0000-0000000000c3', '00000000-0000-0000-0000-00000000000b',
             '2099-11-01 09:00+08', '2099-11-01 10:00+08', 1)$$,
@@ -193,7 +193,7 @@ INSERT INTO transactions (booking_id) VALUES ('00000000-0000-0000-0000-000000000
 UPDATE transactions SET provider_ref_id = 'pi_b2' WHERE booking_id = '00000000-0000-0000-0000-0000000000b2';
 
 RESET ROLE;  -- simulate both holds running out
-UPDATE bookings SET hold_expires_at = now() - interval '1 second'
+UPDATE bookings SET expires_at = now() - interval '1 second'
 WHERE id IN ('00000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-0000000000b3');
 SET LOCAL ROLE picksched_app;
 

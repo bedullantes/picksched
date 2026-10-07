@@ -7,6 +7,7 @@ export interface Config {
   bcryptRounds: number;
   dbStatementTimeoutMs: number;
   maxBookingHours: number;
+  holdSweepIntervalMs: number;
   webDist?: string;
 }
 
@@ -30,6 +31,7 @@ export function loadConfig(): Config {
     bcryptRounds: Number(process.env.BCRYPT_ROUNDS ?? 12),
     dbStatementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 5000),
     maxBookingHours: Number(process.env.MAX_BOOKING_HOURS ?? 4),
+    holdSweepIntervalMs: Number(process.env.HOLD_SWEEP_INTERVAL_MS ?? 15_000),
     webDist: process.env.WEB_DIST,
   };
 }

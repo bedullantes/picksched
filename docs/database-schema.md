@@ -5,6 +5,7 @@ PostgreSQL 14+. The source of truth is the migrations, applied in order:
 1. [`001_initial_schema.sql`](../db/migrations/001_initial_schema.sql): tables, relationships, integrity constraints and the no-overlap rule
 2. [`002_booking_holds_and_access_control.sql`](../db/migrations/002_booking_holds_and_access_control.sql): booking hold expiry, prices computed by the database, booking status rules, the PayMongo result function and role-based access control
 3. [`003_calendar_and_maintenance.sql`](../db/migrations/003_calendar_and_maintenance.sql): court opening hours, maintenance blocks, the 1-hour advance-booking rule, owner rescheduling, calendar availability and live change notifications
+4. [`004_booking_workflow.sql`](../db/migrations/004_booking_workflow.sql): status `pending` renamed to `pending_payment`, `hold_expires_at` renamed to `expires_at`, a 3-minute checkout hold, and owners blocked from changing bookings during checkout
 
 ## Entity relationships
 
@@ -63,11 +64,11 @@ All foreign keys use `ON DELETE RESTRICT`: a court with bookings, or a booking w
 | court_id | UUID FK → courts | |
 | player_id | UUID FK → users | |
 | start_time / end_time | TIMESTAMPTZ | `end_time > start_time` |
-| status | `booking_status` | `pending`, `confirmed`, `cancelled`; default `pending` |
+| status | `booking_status` | `pending_payment`, `confirmed`, `cancelled`; default `pending_payment` |
 | total_amount | BIGINT | Centavos, ≥ 0. **Computed by the database** on insert: `hourly_rate × duration`, rounded. Later rate changes don't affect it |
 | currency | CHAR(3) | Copied from the court |
 | cancelled_at | TIMESTAMPTZ | Set if and only if `status = 'cancelled'` |
-| hold_expires_at | TIMESTAMPTZ | When an unpaid `pending` booking releases its slot (insert time + 15 min). Required while `pending` |
+| expires_at | TIMESTAMPTZ | When an unpaid `pending_payment` booking releases its slot (insert time + 3 min). Required while `pending_payment` |
 
 ### `court_blocks` (maintenance)
 | Column | Type | Notes |
@@ -78,7 +79,7 @@ All foreign keys use `ON DELETE RESTRICT`: a court with bookings, or a booking w
 | start_time / end_time | TIMESTAMPTZ | `end_time > start_time`; blocks on the same court can't overlap |
 | reason | TEXT | Optional. Shown only to the court owner |
 
-A block can't overlap an active (pending or confirmed) booking, and a booking can't overlap a block. Expired holds in the way are released first. Both sides take a per-court lock (`lock_court_schedule`), so a booking and a block created at the same moment can't both succeed. Only the court owner can read or change blocks; everyone else sees blocked slots as `maintenance` in `get_availability`.
+A block can't overlap an active (`pending_payment` or `confirmed`) booking, and a booking can't overlap a block. Expired holds in the way are released first. Both sides take a per-court lock (`lock_court_schedule`), so a booking and a block created at the same moment can't both succeed. Only the court owner can read or change blocks; everyone else sees blocked slots as `maintenance` in `get_availability`.
 
 ### `transactions`
 | Column | Type | Notes |
@@ -97,7 +98,7 @@ A block can't overlap an active (pending or confirmed) booking, and a booking ca
 CONSTRAINT bookings_no_overlap EXCLUDE USING gist (
     court_id                              WITH =,
     tstzrange(start_time, end_time, '[)') WITH &&
-) WHERE (status IN ('pending', 'confirmed'))
+) WHERE (status IN ('pending_payment', 'confirmed'))
 ```
 
 - The **database** enforces this, not application code, so it holds when requests race. Five concurrent inserts for the same slot result in one booking and four `exclusion_violation` errors.
@@ -105,25 +106,27 @@ CONSTRAINT bookings_no_overlap EXCLUDE USING gist (
 - Ranges are half-open (`[start, end)`), so back-to-back slots like 09:00–10:00 and 10:00–11:00 are allowed.
 - Requires the `btree_gist` extension, which the migration creates.
 
-### Booking holds (unpaid pending bookings)
+### Checkout holds (unpaid `pending_payment` bookings)
 
-A `pending` booking holds its slot until `hold_expires_at`, 15 minutes after it was created. The length comes from `booking_hold_interval()`; replace that function to change it. A hold that has expired is released in two ways:
+A `pending_payment` booking holds its slot until `expires_at`, 3 minutes after it was created. The length comes from `booking_hold_interval()`; replace that function to change it. A hold that has expired is released in two ways:
 
 1. **Automatically, when someone books an overlapping slot.** Before inserting, the database cancels any expired pending booking that overlaps the new one on the same court. A stale hold never blocks a real booking, even if the cleanup job is behind. This was tested with 5 simultaneous requests for a slot held by an expired booking: the hold was released, 1 request got the slot, and 4 were rejected.
-2. **In bulk, with `SELECT expire_stale_bookings();`.** Schedule it, for example every minute with pg_cron or the API's job runner, so availability listings never show expired holds. It returns the number of bookings cancelled and is safe to run repeatedly.
+2. **In bulk, with `SELECT expire_stale_bookings();`.** The API runs this every 15 seconds (`HOLD_SWEEP_INTERVAL_MS`), so abandoned checkouts become `cancelled` and calendars update. It returns the number of bookings cancelled and is safe to run from several API instances at once.
+
+Read-side, `get_availability` already treats an expired hold as open, so a slot never looks taken past its `expires_at`, even between sweeps.
 
 ### Booking status rules
 
 ```
-pending ──> confirmed ──> cancelled
+pending_payment ──> confirmed ──> cancelled
    └──────────────────────> cancelled
 ```
 
-`cancelled` is final, and `confirmed` can't go back to `pending`. A trigger enforces this; a disallowed change fails with SQLSTATE `23514` (respond with HTTP 409).
+`cancelled` is final, and `confirmed` can't go back to `pending_payment`. A trigger enforces this; a disallowed change fails with SQLSTATE `23514` (respond with HTTP 409).
 
 ### Advance booking rule (migration 003)
 
-Players must book at least `booking_min_lead_time()` (1 hour) ahead. The row-level security insert policy enforces this, so a booking that is too soon or in the past is rejected with `42501`. The API checks first and returns a clearer `422 TOO_SOON` / `422 SLOT_IN_PAST`.
+Players must book at least `booking_min_lead_time()` (1 hour) ahead. The row-level security insert policy enforces this, so a booking that is too soon or in the past is rejected with `42501`. The API checks first and returns a clearer `400 TOO_SOON` / `400 SLOT_IN_PAST`.
 
 ### Calendar availability (migration 003)
 
@@ -137,7 +140,7 @@ Players must book at least `booking_min_lead_time()` (1 hour) ahead. The row-lev
 | `maintenance` | Covered by a maintenance block |
 | `unavailable` | In the past, or inside the 1-hour advance window |
 
-Expired pending holds count as open. Booking details (id, status, times, hold expiry) are returned only to the booking's player and the court owner, and the player's email and the block reason only to the owner. Other players see the status and nothing else.
+Expired `pending_payment` holds count as open. Booking details (id, status, times, hold expiry) are returned only to the booking's player and the court owner, and the player's email and the block reason only to the owner. Other players see the status and nothing else.
 
 ### Owner rescheduling (migration 003)
 
@@ -147,11 +150,17 @@ Expired pending holds count as open. Booking details (id, status, times, hold ex
 
 Every insert, update or delete on `bookings` or `court_blocks` runs `pg_notify('picksched_schedule', '{"court_id","start_time","end_time"}')`. The payload contains no personal data. The API listens on this channel and pushes changes to browsers (see [booking-calendar.md](booking-calendar.md)).
 
+### Owners and bookings in checkout (migration 004)
+
+While a booking is `pending_payment` and its hold hasn't expired (`booking_in_checkout(b)`), the player is paying for it. Court owners can view it but can't cancel, confirm or reschedule it. Those calls fail with SQLSTATE `55006` (`object_in_use`), which the API returns as `409 BOOKING_IN_CHECKOUT`. The player can still cancel their own checkout.
+
+An owner can't manually confirm an unpaid booking: once its hold expires, `confirm_booking` fails with `23514`. A booking becomes `confirmed` through `record_payment_result` (PayMongo), and owners can then reschedule or cancel it.
+
 ## PayMongo integration notes
 
 - Amounts are integers in centavos, which is what PayMongo's REST API sends and receives. No conversion is needed.
 - Payment flow:
-  1. The player inserts a booking. The database prices it, and it starts as `pending` with a 15-minute hold.
+  1. The player inserts a booking. The database prices it, and it starts as `pending_payment` with a 3-minute hold.
   2. The player inserts a transaction (`booking_id` only). The database copies the amount from the booking.
   3. The API creates the PayMongo Payment Intent for `amount` and stores its id: `UPDATE transactions SET provider_ref_id = 'pi_…'`.
   4. The webhook handler verifies the PayMongo signature, then calls `SELECT record_payment_result('pi_…', 'paid' | 'failed' | 'processing' | 'refunded')`.

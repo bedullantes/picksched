@@ -25,6 +25,7 @@ interface RequestOptions {
   query?: Record<string, string | number | boolean | undefined>;
   signal?: AbortSignal;
   timeoutMs?: number;
+  headers?: Record<string, string>;
 }
 
 const FALLBACK: Record<number, string> = {
@@ -51,7 +52,10 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
     res = await fetch(url, {
       method: opts.method ?? 'GET',
       credentials: 'same-origin',
-      headers: opts.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      headers: {
+        ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...opts.headers,
+      },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       signal: timeout.signal,
     });

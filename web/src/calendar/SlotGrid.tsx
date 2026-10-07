@@ -64,7 +64,7 @@ export function SlotGrid({ columns, courtsById, timeZone, role, now, offline, on
                   <li key={slot.startTime} style={{ gridRow: rowIndex.get(timeKey(slot.startTime, timeZone)) }}>
                     <button
                       type="button"
-                      className={`slot slot--${slot.status}${slot.booking?.status === 'pending' ? ' slot--pending' : ''}`}
+                      className={`slot slot--${slot.status}${slot.booking?.status === 'pending_payment' ? ' slot--pending' : ''}`}
                       disabled={!actionable || blockedByOffline}
                       title={blockedByOffline ? "You're offline. Reconnect to book." : undefined}
                       aria-label={`${col.title}, ${range}, ${text.status}${text.detail ? `, ${text.detail}` : ''}`}

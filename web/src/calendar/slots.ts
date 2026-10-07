@@ -38,14 +38,14 @@ export function describeSlot(slot: Slot, role: Role, court?: Court, now?: string
     case 'mine':
       return {
         label: 'Your booking',
-        detail: slot.booking?.status === 'pending' ? 'Awaiting payment' : 'Confirmed',
+        detail: slot.booking?.status === 'pending_payment' ? 'Awaiting payment' : 'Confirmed',
         status: 'Your booking',
       };
     case 'booked':
       if (role === 'admin' && slot.booking) {
         return {
           label: slot.booking.playerEmail ?? 'Booked',
-          detail: slot.booking.status === 'pending' ? 'Pending payment' : 'Confirmed',
+          detail: slot.booking.status === 'pending_payment' ? 'Checking out' : 'Confirmed',
           status: `Booked by ${slot.booking.playerEmail ?? 'a player'}`,
         };
       }
