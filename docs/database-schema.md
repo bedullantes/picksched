@@ -7,6 +7,7 @@ PostgreSQL 14+. The source of truth is the migrations, applied in order:
 3. [`003_calendar_and_maintenance.sql`](../db/migrations/003_calendar_and_maintenance.sql): court opening hours, maintenance blocks, the 1-hour advance-booking rule, owner rescheduling, calendar availability and live change notifications
 4. [`004_booking_workflow.sql`](../db/migrations/004_booking_workflow.sql): status `pending` renamed to `pending_payment`, `hold_expires_at` renamed to `expires_at`, a 3-minute checkout hold (15 minutes since migration 005), and owners blocked from changing bookings during checkout
 5. [`005_paymongo_payments.sql`](../db/migrations/005_paymongo_payments.sql): PayMongo payments: booking payment fields, transaction payment details and commission, webhook event log, refunds and the notifications outbox (see [payments.md](payments.md))
+6. [`006_email_sms_notifications.sql`](../db/migrations/006_email_sms_notifications.sql): `users.phone`, booking confirmation audit times, and per-channel (email/SMS) notification delivery tracking (see [notifications.md](notifications.md))
 
 ## Entity relationships
 
@@ -39,6 +40,7 @@ All foreign keys use `ON DELETE RESTRICT`: a court with bookings, or a booking w
 | id | UUID PK | `gen_random_uuid()` |
 | email | TEXT | Unique without regard to case (`lower(email)` index); basic format check |
 | password_hash | TEXT | Hash only (e.g. argon2id or bcrypt), never plaintext |
+| phone | TEXT | Optional mobile number in E.164 (`+639171234567`), for SMS confirmations |
 | role | `user_role` | `admin` = **Court Owner**, or `player`; default `player`. The spec's "Admin" and "Court Owner" are the same role. |
 | created_at / updated_at | TIMESTAMPTZ | `updated_at` maintained by a trigger |
 
@@ -71,6 +73,8 @@ All foreign keys use `ON DELETE RESTRICT`: a court with bookings, or a booking w
 | cancelled_at | TIMESTAMPTZ | Set if and only if `status = 'cancelled'` |
 | payment_intent_id | TEXT | PayMongo payment intent (`pi_…`) once checkout starts; unique |
 | payment_status | `booking_payment_status` | `unpaid`, `processing`, `paid`, `failed`, `expired`, `refunded` |
+| confirmed_at | TIMESTAMPTZ | When the booking became `confirmed` |
+| confirmation_email_sent_at / confirmation_sms_sent_at | TIMESTAMPTZ | When the player's confirmation email / SMS was accepted by SendGrid / Twilio |
 | expires_at | TIMESTAMPTZ | When an unpaid `pending_payment` booking releases its slot (insert time + 15 min). Required while `pending_payment` |
 
 ### `court_blocks` (maintenance)

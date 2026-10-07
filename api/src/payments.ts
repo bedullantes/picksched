@@ -182,6 +182,9 @@ export async function handleWebhookEvent(deps: Deps, event: WebhookEvent): Promi
     });
   }
   if (outcome?.refundNeeded) await refundOne(deps, outcome.bookingId, args!.intentId, outcome.paymentId, outcome.amount);
+  // Send the confirmation email/SMS now, in the background. Never awaited: a
+  // notification problem must not affect the webhook response or the booking.
+  if (outcome) deps.notifier?.kick();
   return result;
 }
 
@@ -205,6 +208,7 @@ export async function syncFromPayMongo(deps: Deps, req: Request, bookingId: stri
   if (!args) return;
   const outcome = await withUser(deps.db, null, deps.config.dbStatementTimeoutMs, (tx) => applyResult(tx, args));
   if (outcome.refundNeeded) await refundOne(deps, outcome.bookingId, args.intentId, outcome.paymentId, outcome.amount);
+  deps.notifier?.kick();
 }
 
 async function refundOne(deps: Deps, bookingId: string, intentId: string, paymentId: string | null, amount: number) {

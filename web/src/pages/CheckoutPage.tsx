@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError, errorMessage } from '../api/client';
 import type { Booking, CheckoutResult } from '../api/types';
 import { AppHeader } from '../components/AppHeader';
+import { useAuth } from '../auth/AuthContext';
 import { DEFAULT_TIMEZONE, formatDate, formatMoney, formatTimeRange, todayIn } from '../lib/format';
 import { METHOD_LABELS, redirectTo } from '../lib/navigation';
 import { mmss, useCountdown } from '../lib/useCountdown';
@@ -18,6 +19,7 @@ export function CheckoutPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const online = useOnline();
+  const { user } = useAuth();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
@@ -149,6 +151,11 @@ export function CheckoutPage() {
                       Pay {formatMoney(booking.totalAmount, booking.currency)}
                     </button>
                   </div>
+                  {!user?.phone && (
+                    <p className="hint">
+                      Want an SMS confirmation too? <Link to="/account">Add your mobile number</Link> before paying.
+                    </p>
+                  )}
                   <p className="hint">
                     You'll be taken to PayMongo's secure checkout to pay with {Object.values(METHOD_LABELS).join(' or ')}.
                     Your booking is confirmed as soon as PayMongo confirms the payment.

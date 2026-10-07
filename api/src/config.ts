@@ -1,3 +1,6 @@
+import type { SendGridConfig } from './messaging/sendgrid.js';
+import type { TwilioConfig } from './messaging/twilio.js';
+
 export interface Config {
   port: number;
   databaseUrl: string;
@@ -30,9 +33,14 @@ export interface PayMongoConfig {
 }
 
 export interface NotificationsConfig {
+  /** Fallback delivery for channels without a provider: server log, or POST to webhookUrl. */
   transport: 'log' | 'webhook';
   webhookUrl?: string;
   intervalMs: number;
+  email: { provider: 'sendgrid' | 'log' | 'webhook' | 'default'; sendgrid?: SendGridConfig };
+  sms: { provider: 'twilio' | 'log' | 'webhook' | 'off' | 'default'; twilio?: TwilioConfig };
+  /** Country calling code assumed for local phone numbers ("0917…"). */
+  defaultCountryCode: string;
 }
 
 function required(name: string): string {
@@ -85,9 +93,51 @@ function loadNotificationsConfig(): NotificationsConfig {
   if (transport !== 'log' && transport !== 'webhook') {
     throw new Error('NOTIFICATIONS_TRANSPORT must be "log" or "webhook"');
   }
+  const emailProvider = process.env.EMAIL_PROVIDER ?? (process.env.SENDGRID_API_KEY ? 'sendgrid' : 'default');
+  const smsProvider = process.env.SMS_PROVIDER ?? (process.env.TWILIO_ACCOUNT_SID ? 'twilio' : 'default');
+  if (!['sendgrid', 'log', 'webhook', 'default'].includes(emailProvider)) {
+    throw new Error('EMAIL_PROVIDER must be one of sendgrid, log, webhook');
+  }
+  if (!['twilio', 'log', 'webhook', 'off', 'default'].includes(smsProvider)) {
+    throw new Error('SMS_PROVIDER must be one of twilio, log, webhook, off');
+  }
+  const needsWebhook = transport === 'webhook' || emailProvider === 'webhook' || smsProvider === 'webhook';
+  const timeoutMs = Number(process.env.NOTIFICATIONS_TIMEOUT_MS ?? 10_000);
+
+  let sendgrid: SendGridConfig | undefined;
+  if (emailProvider === 'sendgrid') {
+    sendgrid = {
+      apiKey: required('SENDGRID_API_KEY'),
+      fromEmail: required('SENDGRID_FROM_EMAIL'),
+      fromName: process.env.SENDGRID_FROM_NAME ?? 'PickSched',
+      apiBase: (process.env.SENDGRID_API_BASE ?? 'https://api.sendgrid.com').replace(/\/$/, ''),
+      timeoutMs,
+      sandbox: process.env.SENDGRID_SANDBOX_MODE === 'true',
+    };
+  }
+  let twilio: TwilioConfig | undefined;
+  if (smsProvider === 'twilio') {
+    const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+    const fromNumber = process.env.TWILIO_FROM_NUMBER;
+    if (!messagingServiceSid && !fromNumber) {
+      throw new Error('Set TWILIO_MESSAGING_SERVICE_SID (recommended) or TWILIO_FROM_NUMBER');
+    }
+    twilio = {
+      accountSid: required('TWILIO_ACCOUNT_SID'),
+      authToken: required('TWILIO_AUTH_TOKEN'),
+      messagingServiceSid,
+      fromNumber,
+      apiBase: (process.env.TWILIO_API_BASE ?? 'https://api.twilio.com').replace(/\/$/, ''),
+      timeoutMs,
+      statusCallbackUrl: process.env.TWILIO_STATUS_CALLBACK_URL,
+    };
+  }
   return {
     transport,
-    webhookUrl: transport === 'webhook' ? required('NOTIFICATIONS_WEBHOOK_URL') : undefined,
+    webhookUrl: needsWebhook ? required('NOTIFICATIONS_WEBHOOK_URL') : undefined,
     intervalMs: Number(process.env.NOTIFICATIONS_INTERVAL_MS ?? 5000),
+    email: { provider: emailProvider as NotificationsConfig['email']['provider'], sendgrid },
+    sms: { provider: smsProvider as NotificationsConfig['sms']['provider'], twilio },
+    defaultCountryCode: process.env.PHONE_DEFAULT_COUNTRY_CODE ?? '63',
   };
 }

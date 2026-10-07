@@ -52,7 +52,7 @@ describe('payment result', () => {
       payment: { status: 'paid', method: 'gcash', amount: 50000, failureCode: null, failureMessage: null, processedAt: null, refunded: false } };
     expect(await screen.findByRole('heading', { name: 'Payment successful' }, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getByText('GCash')).toBeInTheDocument();
-    expect(screen.getByText('Your booking is confirmed. We\'ve sent you a confirmation.')).toBeInTheDocument();
+    expect(screen.getByText("Your booking is confirmed. We're sending a confirmation to p@x.com.")).toBeInTheDocument();
   });
 
   it('shows "Payment failed" with the reason and a way to retry', async () => {

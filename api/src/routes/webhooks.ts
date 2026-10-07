@@ -2,6 +2,8 @@ import express, { Router } from 'express';
 import type { Deps } from '../context.js';
 import { handleWebhookEvent } from '../payments.js';
 import { verifyWebhookSignature } from '../paymongo.js';
+import { verifyTwilioSignature } from '../messaging/twilio.js';
+import { withUser } from '../db.js';
 
 /**
  * POST /api/webhooks/paymongo
@@ -52,6 +54,33 @@ export function webhookRoutes(deps: Deps) {
       id: event.id, type: attrs.type, livemode: Boolean(attrs.livemode), resource: attrs.data, raw: body,
     });
     res.json({ received: true, result });
+  });
+
+  /**
+   * POST /api/webhooks/twilio/status — Twilio delivery receipts for SMS
+   * (sent with TWILIO_STATUS_CALLBACK_URL). Verified with X-Twilio-Signature.
+   */
+  r.post('/twilio/status', express.urlencoded({ extended: false, limit: '64kb' }), async (req, res) => {
+    const twilio = deps.config.notifications.sms.twilio;
+    if (!twilio?.statusCallbackUrl) {
+      res.status(503).json({ error: { code: 'NOT_CONFIGURED', message: 'Twilio status callbacks are not configured.' } });
+      return;
+    }
+    const params = Object.fromEntries(Object.entries(req.body ?? {}).map(([k, v]) => [k, String(v)]));
+    if (!verifyTwilioSignature(twilio.authToken, twilio.statusCallbackUrl, params, req.get('X-Twilio-Signature'))) {
+      console.warn('Rejected Twilio status callback: bad signature');
+      res.status(403).json({ error: { code: 'INVALID_SIGNATURE', message: 'Invalid signature.' } });
+      return;
+    }
+    if (params.MessageSid && params.MessageStatus) {
+      const error = params.ErrorCode ? `Twilio ${params.ErrorCode}: ${params.MessageStatus}` : null;
+      await withUser(deps.db, null, deps.config.dbStatementTimeoutMs, (tx) =>
+        tx.query('SELECT record_notification_delivery($1, $2, $3, $4)', ['twilio', params.MessageSid, params.MessageStatus, error]));
+      if (params.MessageStatus === 'undelivered' || params.MessageStatus === 'failed') {
+        console.error(`[notifications] SMS ${params.MessageSid} ${params.MessageStatus}${error ? ` (${error})` : ''}`);
+      }
+    }
+    res.status(204).end();
   });
 
   return r;

@@ -298,6 +298,7 @@ export function bookingRoutes(deps: Deps) {
       await tx.query('SELECT confirm_booking($1)', [id]);
       return loadBooking(tx, id);
     });
+    deps.notifier?.kick();
     res.json({ booking: s.booking(row) });
   });
 

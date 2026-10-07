@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage } from '../api/client';
 import type { Booking } from '../api/types';
 import { AppHeader } from '../components/AppHeader';
+import { useAuth } from '../auth/AuthContext';
 import { DEFAULT_TIMEZONE, formatDate, formatMoney, formatTime, formatTimeRange, todayIn } from '../lib/format';
 import { METHOD_LABELS } from '../lib/navigation';
 import { mmss, useCountdown } from '../lib/useCountdown';
@@ -32,6 +33,7 @@ export function PaymentResultPage() {
   const [params] = useSearchParams();
   const returnedVia = params.get('result');
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -153,7 +155,7 @@ export function PaymentResultPage() {
           <section className="result-card result-card--success" role="status">
             <span className="result-icon result-icon--success" aria-hidden="true">✓</span>
             <h1>Payment successful</h1>
-            <p>Your booking is confirmed. We've sent you a confirmation.</p>
+            <p>Your booking is confirmed. We're sending a confirmation to {user?.email ?? 'your email'}{user?.phone ? ' and by SMS' : ''}.</p>
             {summary}
             <div className="checkout-actions">
               <Link className="button-primary button-link" to="/bookings">Back to calendar</Link>

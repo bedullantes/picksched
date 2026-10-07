@@ -116,14 +116,7 @@ Each row stores the rate it was charged at, so changing the rate later doesn't a
 
 ## Notifications
 
-Confirming a booking queues messages in the `notifications` table for the player (`booking_confirmed`) and the court owner (`booking_received`). A refund queues `payment_refunded`. The API's dispatcher sends them every 5 seconds, retrying with backoff up to 5 attempts.
-
-| `NOTIFICATIONS_TRANSPORT` | Delivery |
-|---|---|
-| `log` (default) | Written to the server log |
-| `webhook` | POSTs `{ id, kind, to, recipientRole, subject, text, data }` to `NOTIFICATIONS_WEBHOOK_URL`. Connect this to your email or SMS service, or an automation tool |
-
-Users can also read theirs at `GET /api/notifications`. **No email or SMS provider is wired in yet;** that's a deployment choice.
+Confirming a booking queues a confirmation for the player and an alert for the court owner, by email (SendGrid) and SMS (Twilio). A refund queues an email to the player. See [notifications.md](notifications.md).
 
 ## Errors players can see
 
@@ -144,4 +137,3 @@ Users can also read theirs at `GET /api/notifications`. **No email or SMS provid
 
 - Refunds when an owner cancels a booking that was already paid. That's a policy decision; `refunds_due()` deliberately excludes it.
 - Payouts to court owners (`owner_net` is recorded for reporting).
-- Email or SMS delivery (see Notifications).

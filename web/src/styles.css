@@ -289,3 +289,8 @@ button:disabled { cursor: not-allowed; }
 .result-icon--success { background: #16a34a; }
 .result-icon--failed { background: var(--danger); }
 .result-icon--wait { background: #d97706; }
+
+/* Account ------------------------------------------------------------------- */
+.card-title { font-size: 1.05rem; }
+.field-help { color: var(--muted); font-size: 0.82rem; font-weight: 400; }
+.optional { color: var(--muted); font-weight: 400; }

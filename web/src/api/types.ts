@@ -4,6 +4,8 @@ export interface User {
   id: string;
   email: string;
   role: Role;
+  /** E.164 mobile number for SMS confirmations, if given. */
+  phone?: string | null;
 }
 
 export interface Court {

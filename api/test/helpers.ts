@@ -8,6 +8,8 @@ import { createPool } from '../src/db.js';
 import { ScheduleEvents } from '../src/events.js';
 import { PayMongoClient } from '../src/paymongo.js';
 import { startFakePayMongo } from './fake-paymongo.js';
+import { startFakeMessaging } from './fake-messaging.js';
+import { NotificationDispatcher, transportsFor } from '../src/notifications.js';
 
 export function testConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -20,7 +22,9 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     dbStatementTimeoutMs: 5000,
     maxBookingHours: 4,
     holdSweepIntervalMs: 60_000,
-    notifications: { transport: 'log', intervalMs: 60_000 },
+    notifications: {
+      transport: 'log', intervalMs: 60_000, email: { provider: 'log' }, sms: { provider: 'log' }, defaultCountryCode: '63',
+    },
     paymentJobIntervalMs: 60_000,
     ...overrides,
   };
@@ -29,9 +33,36 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
 export const PAYMONGO_SECRET = 'sk_test_fake_secret';
 export const PAYMONGO_WEBHOOK_SECRET = 'whsk_fake_webhook_secret';
 
-/** Starts the API against the test database, with a fake PayMongo behind it. */
-export async function startTestApp(overrides: Partial<Config> = {}) {
+export const SENDGRID_KEY = 'SG.fake-key';
+export const TWILIO_SID = 'ACfake0000000000000000000000000000';
+export const TWILIO_TOKEN = 'fake-twilio-auth-token';
+
+/**
+ * Starts the API against the test database, with a fake PayMongo behind it.
+ * With { messaging: true }, notifications are dispatched automatically
+ * through fake SendGrid and Twilio servers, as in production.
+ */
+export async function startTestApp(overrides: Partial<Config> = {}, opts: { messaging?: boolean } = {}) {
   const paymongoFake = await startFakePayMongo({ secretKey: PAYMONGO_SECRET, webhookSecret: PAYMONGO_WEBHOOK_SECRET });
+  const messagingFake = opts.messaging
+    ? await startFakeMessaging({ sendgridKey: SENDGRID_KEY, twilioSid: TWILIO_SID, twilioToken: TWILIO_TOKEN })
+    : undefined;
+  if (messagingFake) {
+    overrides = {
+      notifications: {
+        transport: 'log', intervalMs: 500, defaultCountryCode: '63',
+        email: { provider: 'sendgrid', sendgrid: {
+          apiKey: SENDGRID_KEY, fromEmail: 'bookings@picksched.test', fromName: 'PickSched',
+          apiBase: messagingFake.baseUrl, timeoutMs: 2000, sandbox: false,
+        } },
+        sms: { provider: 'twilio', twilio: {
+          accountSid: TWILIO_SID, authToken: TWILIO_TOKEN, messagingServiceSid: 'MGfake', apiBase: messagingFake.baseUrl,
+          timeoutMs: 2000, statusCallbackUrl: 'https://picksched.test/api/webhooks/twilio/status',
+        } },
+      },
+      ...overrides,
+    };
+  }
   const config = testConfig({
     paymongo: {
       secretKey: PAYMONGO_SECRET,
@@ -48,7 +79,8 @@ export async function startTestApp(overrides: Partial<Config> = {}) {
   const events = new ScheduleEvents(config.databaseUrl);
   await events.start();
   const paymongo = config.paymongo ? new PayMongoClient(config.paymongo) : undefined;
-  const deps = { db, config, events, paymongo };
+  const deps: import('../src/context.js').Deps = { db, config, events, paymongo };
+  if (messagingFake) deps.notifier = new NotificationDispatcher(deps, transportsFor(config), config.notifications.intervalMs).start();
   const app = createApp(deps);
   const server = app.listen(0);
   await new Promise<void>((r) => server.once('listening', () => r()));
@@ -57,8 +89,11 @@ export async function startTestApp(overrides: Partial<Config> = {}) {
   // Superuser connection for fixtures and for simulating the passage of time.
   const admin = new pg.Pool({ connectionString: config.databaseUrl, max: 2 });
   return {
-    app, db, events, admin, baseUrl, config, deps, paymongoFake,
+    app, db, events, admin, baseUrl, config, deps, paymongoFake, messagingFake,
     async close() {
+      deps.notifier?.stop();
+      await deps.notifier?.idle();
+      await messagingFake?.close();
       server.closeAllConnections();
       await new Promise((r) => server.close(r));
       await events.stop();

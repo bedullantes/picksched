@@ -10,7 +10,8 @@
     "test": "vitest run",
     "migrate": "tsx scripts/migrate.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
-    "dev:paymongo": "tsx scripts/fake-paymongo.ts"
+    "dev:paymongo": "tsx scripts/fake-paymongo.ts",
+    "dev:messaging": "tsx scripts/fake-messaging.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

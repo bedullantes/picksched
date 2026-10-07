@@ -10,7 +10,8 @@ A SaaS pickleball court booking system for independent court owners.
 - `web/`: React + Vite + TypeScript frontend (booking calendar, checkout)
 - `docs/database-schema.md`: data model, relationships, and constraint reference
 - `docs/booking-calendar.md`: calendar module behavior, API reference and error handling
-- `docs/payments.md`: PayMongo (GCash / Maya) payments, webhooks, commission and notifications
+- `docs/payments.md`: PayMongo (GCash / Maya) payments, webhooks and commission
+- `docs/notifications.md`: booking confirmation email (SendGrid) and SMS (Twilio)
 
 ## Running locally
 
@@ -58,7 +59,9 @@ For production, run `npm run build`, then start the API with `WEB_DIST=web/dist 
 | `PAYMONGO_API_BASE` | `https://api.paymongo.com/v1` | Override for the local simulator |
 | `PAYMONGO_TIMEOUT_MS` | `10000` | PayMongo API timeout |
 | `PAYMENT_JOB_INTERVAL_MS` | `60000` | How often expired checkouts are closed and due refunds retried |
-| `NOTIFICATIONS_TRANSPORT` | `log` | `log`, or `webhook` to POST each notification to `NOTIFICATIONS_WEBHOOK_URL` |
+| `NOTIFICATIONS_TRANSPORT` | `log` | Fallback when no provider is set: `log`, or `webhook` to POST each notification to `NOTIFICATIONS_WEBHOOK_URL` |
+| `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL` | (none) | Booking confirmation emails via SendGrid |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID` or `TWILIO_FROM_NUMBER` | (none) | Booking confirmation SMS via Twilio. More options in [docs/notifications.md](docs/notifications.md) |
 
 ## Tests
 

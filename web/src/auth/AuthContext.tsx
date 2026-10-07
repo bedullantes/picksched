@@ -10,7 +10,9 @@ interface AuthState {
   checkError: ApiError | null;
   retryCheck: () => void;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, role: Role) => Promise<void>;
+  register: (email: string, password: string, role: Role, phone?: string) => Promise<void>;
+  /** Sets or clears (empty string) the mobile number for SMS confirmations. */
+  updatePhone: (phone: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -46,8 +48,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async login(email, password) {
       setUser((await api<{ user: User }>('/api/auth/login', { method: 'POST', body: { email, password } })).user);
     },
-    async register(email, password, role) {
-      setUser((await api<{ user: User }>('/api/auth/register', { method: 'POST', body: { email, password, role } })).user);
+    async register(email, password, role, phone) {
+      setUser((await api<{ user: User }>('/api/auth/register', {
+        method: 'POST', body: { email, password, role, ...(phone?.trim() ? { phone } : {}) },
+      })).user);
+    },
+    async updatePhone(phone) {
+      setUser((await api<{ user: User }>('/api/auth/me', { method: 'PATCH', body: { phone } })).user);
     },
     async logout() {
       await api('/api/auth/logout', { method: 'POST' }).catch(() => undefined);

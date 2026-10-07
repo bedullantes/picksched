@@ -2,6 +2,7 @@ import type { Request } from 'express';
 import type { Config } from './config.js';
 import { withUser, type Db, type Tx } from './db.js';
 import type { ScheduleEvents } from './events.js';
+import type { NotificationDispatcher } from './notifications.js';
 import type { PayMongoClient } from './paymongo.js';
 
 export interface Deps {
@@ -10,6 +11,8 @@ export interface Deps {
   events: ScheduleEvents;
   /** Present when PayMongo is configured (config.paymongo). */
   paymongo?: PayMongoClient;
+  /** Sends queued notifications; kicked when a payment confirms a booking. */
+  notifier?: NotificationDispatcher;
 }
 
 /** Runs `fn` in a transaction as the request's signed-in user (or anonymous). */

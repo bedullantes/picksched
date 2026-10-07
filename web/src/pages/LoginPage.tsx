@@ -12,6 +12,7 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<Role>('player');
+  const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,7 +22,7 @@ export function LoginPage() {
     setError(null);
     try {
       if (mode === 'login') await login(email, password);
-      else await register(email, password, role);
+      else await register(email, password, role, phone);
       navigate((location.state as { from?: string } | null)?.from ?? '/bookings', { replace: true });
     } catch (err) {
       setError(errorMessage(err));
@@ -45,6 +46,14 @@ export function LoginPage() {
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
+        {mode === 'register' && (
+          <label className="field">
+            <span>Mobile number <span className="optional">(optional)</span></span>
+            <input type="tel" autoComplete="tel" inputMode="tel" placeholder="0917 123 4567"
+              value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <small className="field-help">For SMS booking confirmations.</small>
+          </label>
+        )}
         {mode === 'register' && (
           <fieldset className="field">
             <legend>I am a</legend>

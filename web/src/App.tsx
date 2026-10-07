@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { BookingsDashboard } from './pages/BookingsDashboard';
+import { AccountPage } from './pages/AccountPage';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { LoginPage } from './pages/LoginPage';
 import { PaymentResultPage } from './pages/PaymentResultPage';
@@ -31,6 +32,7 @@ export function AppRoutes() {
       <Route path="/bookings" element={<RequireAuth><BookingsDashboard /></RequireAuth>} />
       <Route path="/bookings/:id/checkout" element={<RequireAuth><CheckoutPage /></RequireAuth>} />
       <Route path="/bookings/:id/payment" element={<RequireAuth><PaymentResultPage /></RequireAuth>} />
+      <Route path="/account" element={<RequireAuth><AccountPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/bookings" replace />} />
     </Routes>
   );
